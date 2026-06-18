@@ -1,6 +1,7 @@
 import { getDefaultAIProvider } from "@/lib/ai/registry";
 import { jsonError } from "@/lib/api";
 import { getAuthenticatedUser } from "@/lib/auth";
+import { getOrCreateProfile } from "@/lib/profiles";
 import { calculateQualityGrade, type ImageDirection } from "@/lib/uploads";
 
 type SourceImageRow = {
@@ -43,14 +44,14 @@ export async function POST(request: Request) {
     return jsonError("DUPLICATE_SOURCE_IMAGE", "동일한 이미지를 중복 사용할 수 없습니다.", 400);
   }
 
-  const { data: profile, error: profileError } = await supabase
-    .from("profiles")
-    .select("remaining_credits,used_credits")
-    .eq("id", user.id)
-    .single();
+  const { profile, error: profileError } = await getOrCreateProfile(supabase, user);
 
   if (profileError || !profile) {
-    return jsonError("PROFILE_NOT_FOUND", "Profile was not found.", 404);
+    return jsonError(
+      "PROFILE_SYNC_FAILED",
+      profileError?.message ?? "Profile sync failed.",
+      500,
+    );
   }
 
   if (profile.remaining_credits <= 0) {

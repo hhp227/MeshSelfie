@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { Suspense } from "react";
 
 import { AuthForm } from "@/components/auth/auth-form";
 
@@ -11,7 +12,9 @@ export default function LoginPage() {
           MeshSelfie 계정으로 실사형 Human Mesh 생성을 시작하세요.
         </p>
         <div className="mt-8">
-          <AuthForm mode="login" />
+          <Suspense fallback={null}>
+            <AuthForm mode="login" />
+          </Suspense>
         </div>
         <p className="mt-6 text-sm text-zinc-600">
           계정이 없나요?{" "}

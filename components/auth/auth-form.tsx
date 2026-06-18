@@ -1,6 +1,6 @@
 "use client";
 
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { FormEvent, useMemo, useState } from "react";
 
 import { createBrowserSupabaseClient } from "@/lib/supabase/browser";
@@ -21,6 +21,7 @@ function getAuthErrorMessage(message: string) {
 
 export function AuthForm({ mode }: { mode: AuthMode }) {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const supabase = useMemo(() => createBrowserSupabaseClient(), []);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -64,7 +65,9 @@ export function AuthForm({ mode }: { mode: AuthMode }) {
       refresh_token: result.data.session.refresh_token,
     });
 
-    router.replace("/dashboard");
+    const nextPath = searchParams.get("next");
+
+    router.replace(nextPath?.startsWith("/") ? nextPath : "/dashboard");
     router.refresh();
   }
 

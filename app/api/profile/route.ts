@@ -1,4 +1,5 @@
 import { getBearerToken, jsonError } from "@/lib/api";
+import { getOrCreateProfile } from "@/lib/profiles";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 
 export async function GET(request: Request) {
@@ -27,14 +28,14 @@ export async function GET(request: Request) {
     return jsonError("UNAUTHORIZED", "Invalid or expired session.", 401);
   }
 
-  const { data: profile, error: profileError } = await supabase
-    .from("profiles")
-    .select("id,email,display_name,role,mesh_quota_daily,remaining_credits,used_credits,created_at")
-    .eq("id", user.id)
-    .single();
+  const { profile, error: profileError } = await getOrCreateProfile(supabase, user);
 
   if (profileError || !profile) {
-    return jsonError("PROFILE_NOT_FOUND", "Profile was not found.", 404);
+    return jsonError(
+      "PROFILE_SYNC_FAILED",
+      profileError?.message ?? "Profile sync failed.",
+      500,
+    );
   }
 
   const [{ count: meshCount }, { count: completedMeshCount }] = await Promise.all([

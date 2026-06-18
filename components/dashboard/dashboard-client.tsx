@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 
 import { createBrowserSupabaseClient } from "@/lib/supabase/browser";
+import { getAccessTokenWithRetry } from "@/lib/supabase/session";
 
 type ProfileResponse = {
   data: {
@@ -39,21 +40,6 @@ export function DashboardClient() {
   useEffect(() => {
     let cancelled = false;
 
-    async function getAccessTokenWithRetry() {
-      for (let attempt = 0; attempt < 8; attempt += 1) {
-        const { data } = await supabase!.auth.getSession();
-        const token = data.session?.access_token;
-
-        if (token) {
-          return token;
-        }
-
-        await new Promise((resolve) => setTimeout(resolve, 150));
-      }
-
-      return null;
-    }
-
     async function loadDashboard() {
       if (!supabase) {
         setError("Supabase 환경 변수가 설정되지 않았습니다.");
@@ -61,7 +47,7 @@ export function DashboardClient() {
         return;
       }
 
-      const token = await getAccessTokenWithRetry();
+      const token = await getAccessTokenWithRetry(supabase);
 
       if (cancelled) {
         return;

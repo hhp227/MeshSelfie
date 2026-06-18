@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { createBrowserSupabaseClient } from "@/lib/supabase/browser";
+import { getAccessTokenWithRetry } from "@/lib/supabase/session";
 
 type Direction = "left" | "right";
 
@@ -40,8 +41,7 @@ export function UploadForm() {
       throw new Error("Supabase 환경 변수가 설정되지 않았습니다.");
     }
 
-    const { data } = await supabase.auth.getSession();
-    const token = data.session?.access_token;
+    const token = await getAccessTokenWithRetry(supabase);
 
     if (!token) {
       throw new Error("로그인이 필요합니다.");
