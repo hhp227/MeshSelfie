@@ -1,4 +1,5 @@
 import { AppNav } from "@/components/app-nav";
+import { AdminModelUploadForm } from "@/components/admin/model-upload-form";
 import { AuthenticatedPage } from "@/components/auth/authenticated-page";
 
 export default function AdminPage() {
@@ -10,11 +11,17 @@ export default function AdminPage() {
           <div>
             <h1 className="text-2xl font-semibold tracking-tight">Admin Dashboard</h1>
             <p className="mt-2 text-sm text-zinc-600">
-              사용자 검색, 생성 현황, Provider 통계, 모델 교체/삭제 기능을 구현할 영역입니다.
+              GLB/GLTF 샘플을 등록하거나 기존 사용자 Human Mesh를 관리자 모델로 교체합니다.
             </p>
           </div>
-          <section className="rounded-lg border border-zinc-200 bg-white p-6 text-sm text-zinc-500">
-            관리자 API와 권한 검사는 다음 구현 단계에서 연결합니다.
+          <section className="rounded-lg border border-zinc-200 bg-white p-6">
+            <h2 className="text-lg font-semibold text-zinc-950">3D 모델 업로드</h2>
+            <p className="mt-2 text-sm text-zinc-500">
+              파일 검증, private Storage 저장, 사용자 모델 갱신 및 감사 로그 기록을 수행합니다.
+            </p>
+            <div className="mt-6">
+              <AdminModelUploadForm />
+            </div>
           </section>
         </main>
       </div>

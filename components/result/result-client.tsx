@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 
+import { GlbViewer } from "@/components/viewer/glb-viewer";
 import { createBrowserSupabaseClient } from "@/lib/supabase/browser";
 
 type MeshDetailResponse = {
@@ -45,6 +46,7 @@ export function ResultClient({ meshId }: { meshId: string }) {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [downloading, setDownloading] = useState(false);
+  const [signedUrlRefresh, setSignedUrlRefresh] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -79,7 +81,34 @@ export function ResultClient({ meshId }: { meshId: string }) {
         return;
       }
 
-      const json = (await result.json()) as MeshDetailResponse;
+      let json = (await result.json()) as MeshDetailResponse;
+
+      if (json.data.latestJob && !FINAL_STATUSES.has(json.data.latestJob.status)) {
+        const statusResult = await fetch(
+          `/api/generation-jobs/${json.data.latestJob.id}`,
+          {
+            headers: {
+              Authorization: `Bearer ${token}`,
+            },
+          },
+        );
+
+        if (statusResult.ok) {
+          setError(null);
+          const refreshedResult = await fetch(`/api/meshes/${meshId}`, {
+            headers: {
+              Authorization: `Bearer ${token}`,
+            },
+          });
+
+          if (refreshedResult.ok) {
+            json = (await refreshedResult.json()) as MeshDetailResponse;
+          }
+        } else {
+          const statusError = await statusResult.json();
+          setError(statusError.error?.message ?? "생성 상태를 동기화하지 못했습니다.");
+        }
+      }
 
       if (cancelled) {
         return;
@@ -103,7 +132,7 @@ export function ResultClient({ meshId }: { meshId: string }) {
         clearInterval(intervalId);
       }
     };
-  }, [mesh, meshId, supabase]);
+  }, [mesh, meshId, signedUrlRefresh, supabase]);
 
   async function handleDownload() {
     if (!supabase) {
@@ -166,19 +195,21 @@ export function ResultClient({ meshId }: { meshId: string }) {
 
   return (
     <div className="grid gap-6 lg:grid-cols-[1fr_360px]">
-      <section className="grid min-h-[460px] place-items-center rounded-lg border border-zinc-200 bg-white p-6">
+      <section className="grid min-h-[460px] place-items-center rounded-lg border border-zinc-200 bg-white p-3">
         {mesh.modelSignedUrl ? (
-          <div className="text-center">
-            <p className="text-sm font-semibold text-zinc-950">GLB 파일 준비 완료</p>
-            <p className="mt-2 text-sm text-zinc-500">
-              3D Viewer 렌더링은 다음 단계에서 연결합니다.
-            </p>
-          </div>
+          <GlbViewer
+            modelUrl={mesh.modelSignedUrl}
+            onSignedUrlExpired={() => setSignedUrlRefresh((value) => value + 1)}
+          />
         ) : (
           <div className="text-center">
-            <p className="text-sm font-semibold text-zinc-950">모델 생성 진행 중</p>
+            <p className="text-sm font-semibold text-zinc-950">
+              {mesh.status === "failed" ? "모델 생성 실패" : "모델 생성 진행 중"}
+            </p>
             <p className="mt-2 text-sm text-zinc-500">
-              현재 Provider는 개발용 stub이므로 실제 GLB 파일은 아직 생성되지 않습니다.
+              {mesh.status === "failed"
+                ? "오른쪽 오류 내용을 확인한 뒤 다시 업로드해주세요."
+                : "입력 이미지를 바탕으로 GLB 모델을 생성하고 저장하고 있습니다."}
             </p>
           </div>
         )}

@@ -5,10 +5,10 @@ export type ProviderKey = "replicate" | "trellis" | "hunyuan3d" | "triposr" | "s
 export type GenerationInput = {
   jobId: string;
   userId: string;
-  frontImagePath: string;
-  sideImagePath?: string;
+  frontImageUrl: string;
+  sideImageUrl?: string;
   sideDirection?: ImageDirection;
-  angle45ImagePath?: string;
+  angle45ImageUrl?: string;
   angle45Direction?: ImageDirection;
   qualityGrade: QualityGrade;
   outputFormat: "glb";
@@ -16,6 +16,14 @@ export type GenerationInput = {
 
 export type ProviderJobResult = {
   providerJobId: string;
+  raw: unknown;
+};
+
+export type ProviderJobStatus = {
+  status: "queued" | "generating" | "completed" | "failed" | "canceled";
+  outputUrl?: string;
+  errorCode?: string;
+  errorMessage?: string;
   raw: unknown;
 };
 
@@ -28,4 +36,6 @@ export interface AIProvider {
     estimatedSeconds: number | null;
   }>;
   createJob(input: GenerationInput): Promise<ProviderJobResult>;
+  getJob(providerJobId: string): Promise<ProviderJobStatus>;
+  cancelJob(providerJobId: string): Promise<void>;
 }

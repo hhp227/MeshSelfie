@@ -185,6 +185,44 @@ paths:
       responses:
         "200":
           description: 상세 조회 성공
+    delete:
+      summary: 내 Human Mesh soft delete
+      description: 모든 모델 상태에서 삭제할 수 있다. 진행 중인 생성 작업은 취소하고 모델은 30일 후 purge 대상으로 표시한다.
+      parameters:
+        - name: meshId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: 삭제 상태 저장 성공
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      id:
+                        type: string
+                        format: uuid
+                      status:
+                        type: string
+                        const: deleted
+                      deletedAt:
+                        type: string
+                        format: date-time
+                      purgeAfter:
+                        type: string
+                        format: date-time
+                      providerCancellation:
+                        type: string
+                        enum: [not_applicable, canceled, failed]
+        "404":
+          description: 모델 없음 또는 이미 삭제됨
   /meshes/{meshId}/download:
     get:
       summary: GLB 다운로드 signed URL 발급
@@ -235,11 +273,41 @@ paths:
                   format: binary
                 purpose:
                   type: string
+                  enum: [replace_failed, external_tool, test_data, sample, quality_replacement]
                 reason:
                   type: string
+                  maxLength: 1000
       responses:
         "200":
           description: 업로드 성공
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      humanMeshId:
+                        type: [string, "null"]
+                        format: uuid
+                      modelSource:
+                        type: string
+                        const: admin_uploaded
+                      modelObjectPath:
+                        type: string
+                      adminUploadId:
+                        type: string
+                        format: uuid
+                      action:
+                        type: string
+                        enum: [replace, sample_create]
+        "403":
+          description: 관리자 권한 필요
+        "413":
+          description: 모델 파일 크기 초과
+        "415":
+          description: 지원하지 않는 모델 파일
   /admin/metrics:
     get:
       summary: 관리자 지표 조회

@@ -1,4 +1,7 @@
+import type { SupabaseClient } from "@supabase/supabase-js";
+
 import { getDefaultAIProvider } from "@/lib/ai/registry";
+import { ReplicateProviderError } from "@/lib/ai/providers/replicate";
 import { jsonError } from "@/lib/api";
 import { getAuthenticatedUser } from "@/lib/auth";
 import { getOrCreateProfile } from "@/lib/profiles";
@@ -19,6 +22,8 @@ type GenerateRequest = {
   sideSourceImageId?: string;
   angle45SourceImageId?: string;
 };
+
+const PROVIDER_IMAGE_URL_TTL_SECONDS = 600;
 
 export async function POST(request: Request) {
   const auth = await getAuthenticatedUser(request);
@@ -152,17 +157,73 @@ export async function POST(request: Request) {
     return jsonError("JOB_CREATE_FAILED", jobError?.message ?? "Job create failed.", 500);
   }
 
-  const providerJob = await provider.createJob({
-    jobId: job.id,
-    userId: user.id,
-    frontImagePath: front.object_path,
-    sideImagePath: side?.object_path,
-    sideDirection: side?.image_direction ?? undefined,
-    angle45ImagePath: angle45?.object_path,
-    angle45Direction: angle45?.image_direction ?? undefined,
-    qualityGrade,
-    outputFormat: "glb",
+  await supabase
+    .from("human_meshes")
+    .update({ latest_job_id: job.id })
+    .eq("id", mesh.id);
+
+  const signedUrls = await Promise.all(
+    [front, side, angle45].map(async (image) => {
+      if (!image) {
+        return null;
+      }
+
+      const { data: signedUrl, error: signedUrlError } = await supabase.storage
+        .from("avatars")
+        .createSignedUrl(image.object_path, PROVIDER_IMAGE_URL_TTL_SECONDS);
+
+      if (signedUrlError || !signedUrl?.signedUrl) {
+        throw new Error(signedUrlError?.message ?? `Could not sign ${image.image_role} image.`);
+      }
+
+      return signedUrl.signedUrl;
+    }),
+  ).catch(async (signedUrlError: unknown) => {
+    await markGenerationFailed(
+      supabase,
+      mesh.id,
+      job.id,
+      "PROVIDER_INPUT_URL_FAILED",
+      "AI Provider용 이미지 URL을 생성하지 못했습니다.",
+      signedUrlError instanceof Error ? signedUrlError.message : "Provider input URL creation failed.",
+    );
+    return null;
   });
+
+  if (!signedUrls) {
+    return jsonError(
+      "PROVIDER_INPUT_URL_FAILED",
+      "AI Provider용 이미지 URL을 생성하지 못했습니다.",
+      500,
+    );
+  }
+
+  let providerJob;
+
+  try {
+    providerJob = await provider.createJob({
+      jobId: job.id,
+      userId: user.id,
+      frontImageUrl: signedUrls[0]!,
+      sideImageUrl: signedUrls[1] ?? undefined,
+      sideDirection: side?.image_direction ?? undefined,
+      angle45ImageUrl: signedUrls[2] ?? undefined,
+      angle45Direction: angle45?.image_direction ?? undefined,
+      qualityGrade,
+      outputFormat: "glb",
+    });
+  } catch (providerError) {
+    const failure = describeProviderFailure(providerError);
+    await markGenerationFailed(
+      supabase,
+      mesh.id,
+      job.id,
+      failure.code,
+      failure.publicMessage,
+      failure.internalError,
+    );
+    return jsonError(failure.code, failure.publicMessage, failure.httpStatus);
+  }
 
   await Promise.all([
     supabase
@@ -178,7 +239,9 @@ export async function POST(request: Request) {
         provider_prediction_id: providerJob.providerJobId,
         status: "generating",
         progress: 5,
-        output_payload: providerJob.raw,
+        output_payload: {
+          predictionId: providerJob.providerJobId,
+        },
         started_at: new Date().toISOString(),
       })
       .eq("id", job.id),
@@ -213,4 +276,82 @@ export async function POST(request: Request) {
       providerJobId: providerJob.providerJobId,
     },
   });
+}
+
+async function markGenerationFailed(
+  supabase: SupabaseClient,
+  meshId: string,
+  jobId: string,
+  errorCode: string,
+  errorMessage: string,
+  internalError: string,
+) {
+  const failedAt = new Date().toISOString();
+  await Promise.all([
+    supabase
+      .from("human_meshes")
+      .update({ status: "failed", failed_at: failedAt })
+      .eq("id", meshId),
+    supabase
+      .from("generation_jobs")
+      .update({
+        status: "failed",
+        error_code: errorCode,
+        error_message: errorMessage,
+        internal_error: internalError,
+        failed_at: failedAt,
+      })
+      .eq("id", jobId),
+  ]);
+}
+
+function describeProviderFailure(error: unknown) {
+  if (error instanceof ReplicateProviderError) {
+    if (error.status === 402) {
+      return {
+        code: "REPLICATE_BILLING_REQUIRED",
+        publicMessage:
+          "Replicate 크레딧 또는 결제 설정이 필요합니다. Replicate Billing을 확인해주세요.",
+        internalError: `${error.message} ${safeDetails(error.details)}`.trim(),
+        httpStatus: 503,
+      };
+    }
+
+    if (error.status === 401 || error.status === 403) {
+      return {
+        code: "REPLICATE_AUTH_FAILED",
+        publicMessage: "Replicate API 토큰이 유효하지 않거나 모델 접근 권한이 없습니다.",
+        internalError: `${error.message} ${safeDetails(error.details)}`.trim(),
+        httpStatus: 503,
+      };
+    }
+
+    if (error.status === 429) {
+      return {
+        code: "REPLICATE_RATE_LIMITED",
+        publicMessage: "Replicate 요청 한도를 초과했습니다. 잠시 후 다시 시도해주세요.",
+        internalError: `${error.message} ${safeDetails(error.details)}`.trim(),
+        httpStatus: 503,
+      };
+    }
+  }
+
+  return {
+    code: "AI_PROVIDER_FAILED",
+    publicMessage: "AI 생성 작업을 시작하지 못했습니다.",
+    internalError: error instanceof Error ? error.message : "AI Provider request failed.",
+    httpStatus: 502,
+  };
+}
+
+function safeDetails(details: unknown) {
+  if (details === undefined) {
+    return "";
+  }
+
+  try {
+    return JSON.stringify(details).slice(0, 2000);
+  } catch {
+    return "Provider error details could not be serialized.";
+  }
 }

@@ -1,4 +1,5 @@
 import { jsonError } from "@/lib/api";
+import { getAIProviderForJob } from "@/lib/ai/registry";
 import { getAuthenticatedUser } from "@/lib/auth";
 
 type RouteContext = {
@@ -37,6 +38,19 @@ type GenerationJobRow = {
   started_at: string | null;
   completed_at: string | null;
   failed_at: string | null;
+};
+
+type DeletableMeshRow = {
+  id: string;
+  status: string;
+  latest_job_id: string | null;
+};
+
+type DeletableJobRow = {
+  id: string;
+  status: string;
+  model_name: string;
+  provider_prediction_id: string | null;
 };
 
 export async function GET(request: Request, context: RouteContext) {
@@ -157,4 +171,140 @@ export async function GET(request: Request, context: RouteContext) {
       failedAt: mesh.failed_at,
     },
   });
+}
+
+export async function DELETE(request: Request, context: RouteContext) {
+  const auth = await getAuthenticatedUser(request);
+
+  if ("error" in auth) {
+    return auth.error;
+  }
+
+  const { supabase, user } = auth;
+  const { meshId } = await context.params;
+  const { data, error } = await supabase
+    .from("human_meshes")
+    .select("id,status,latest_job_id")
+    .eq("id", meshId)
+    .eq("user_id", user.id)
+    .is("soft_deleted_at", null)
+    .maybeSingle();
+
+  if (error) {
+    return jsonError("MESH_LOOKUP_FAILED", error.message, 500);
+  }
+
+  if (!data) {
+    return jsonError("MESH_NOT_FOUND", "삭제할 모델을 찾을 수 없습니다.", 404);
+  }
+
+  const mesh = data as DeletableMeshRow;
+  let latestJob: DeletableJobRow | null = null;
+
+  if (mesh.latest_job_id) {
+    const { data: job, error: jobError } = await supabase
+      .from("generation_jobs")
+      .select("id,status,model_name,provider_prediction_id")
+      .eq("id", mesh.latest_job_id)
+      .eq("user_id", user.id)
+      .maybeSingle();
+
+    if (jobError) {
+      return jsonError("GENERATION_JOB_LOOKUP_FAILED", jobError.message, 500);
+    }
+
+    latestJob = job as DeletableJobRow | null;
+  }
+
+  const deletedAt = new Date();
+  const purgeAfter = new Date(deletedAt.getTime() + 30 * 24 * 60 * 60 * 1000);
+  const { data: deletedMesh, error: deleteError } = await supabase
+    .from("human_meshes")
+    .update({
+      status: "deleted",
+      is_featured: false,
+      featured_at: null,
+      soft_deleted_at: deletedAt.toISOString(),
+      purge_after: purgeAfter.toISOString(),
+    })
+    .eq("id", mesh.id)
+    .eq("user_id", user.id)
+    .is("soft_deleted_at", null)
+    .select("id")
+    .maybeSingle();
+
+  if (deleteError || !deletedMesh) {
+    return jsonError(
+      "MESH_DELETE_FAILED",
+      deleteError?.message ?? "모델 삭제 상태를 저장하지 못했습니다.",
+      500,
+    );
+  }
+
+  const shouldCancelJob = latestJob ? isCancelableStatus(latestJob.status) : false;
+  let providerCancellation: "not_applicable" | "canceled" | "failed" = "not_applicable";
+
+  if (latestJob && shouldCancelJob) {
+    await supabase
+      .from("generation_jobs")
+      .update({
+        status: "canceled",
+        progress: 100,
+        error_code: "CANCELED_BY_USER",
+        error_message: "사용자가 모델을 삭제해 생성 작업을 취소했습니다.",
+        failed_at: null,
+      })
+      .eq("id", latestJob.id)
+      .eq("user_id", user.id)
+      .in("status", ["queued", "validating", "preprocessing", "generating", "postprocessing", "thumbnailing"]);
+
+    if (latestJob.provider_prediction_id) {
+      const provider = getAIProviderForJob(latestJob.model_name);
+
+      if (provider) {
+        try {
+          await provider.cancelJob(latestJob.provider_prediction_id);
+          providerCancellation = "canceled";
+        } catch (providerError) {
+          providerCancellation = "failed";
+          console.error("Provider cancellation failed after mesh deletion", providerError);
+        }
+      } else {
+        providerCancellation = "failed";
+      }
+    }
+  }
+
+  await supabase.from("usage_events").insert({
+    user_id: user.id,
+    event_type: "mesh_deleted",
+    entity_type: "human_mesh",
+    entity_id: mesh.id,
+    metadata: {
+      previousStatus: mesh.status,
+      purgeAfter: purgeAfter.toISOString(),
+      providerCancellation,
+    },
+  });
+
+  return Response.json({
+    data: {
+      id: mesh.id,
+      status: "deleted",
+      deletedAt: deletedAt.toISOString(),
+      purgeAfter: purgeAfter.toISOString(),
+      providerCancellation,
+    },
+  });
+}
+
+function isCancelableStatus(status: string) {
+  return [
+    "queued",
+    "validating",
+    "preprocessing",
+    "generating",
+    "postprocessing",
+    "thumbnailing",
+  ].includes(status);
 }

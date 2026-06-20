@@ -35,7 +35,9 @@ export function DashboardClient() {
   const [profile, setProfile] = useState<ProfileResponse["data"] | null>(null);
   const [avatars, setAvatars] = useState<AvatarListResponse["data"]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -90,6 +92,57 @@ export function DashboardClient() {
     };
   }, [supabase]);
 
+  async function handleDelete(avatar: AvatarListResponse["data"][number]) {
+    if (!supabase || deletingId) {
+      return;
+    }
+
+    const confirmed = window.confirm(
+      `"${avatar.title ?? "Untitled Mesh"}" 모델을 삭제할까요? 30일 후 영구 삭제됩니다.`,
+    );
+
+    if (!confirmed) {
+      return;
+    }
+
+    setDeletingId(avatar.id);
+    setActionError(null);
+    const token = await getAccessTokenWithRetry(supabase);
+
+    if (!token) {
+      setActionError("로그인 세션을 확인하지 못했습니다.");
+      setDeletingId(null);
+      return;
+    }
+
+    const result = await fetch(`/api/meshes/${avatar.id}`, {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${token}` },
+    });
+
+    if (!result.ok) {
+      const body = await result.json().catch(() => null);
+      setActionError(body?.error?.message ?? "모델을 삭제하지 못했습니다.");
+      setDeletingId(null);
+      return;
+    }
+
+    setAvatars((current) => current.filter((item) => item.id !== avatar.id));
+    setProfile((current) =>
+      current
+        ? {
+            ...current,
+            meshCount: Math.max(current.meshCount - 1, 0),
+            completedMeshCount:
+              avatar.status === "completed"
+                ? Math.max(current.completedMeshCount - 1, 0)
+                : current.completedMeshCount,
+          }
+        : current,
+    );
+    setDeletingId(null);
+  }
+
   if (loading) {
     return <p className="text-sm text-zinc-600">대시보드를 불러오는 중입니다.</p>;
   }
@@ -127,13 +180,29 @@ export function DashboardClient() {
             <h2 className="text-base font-semibold text-zinc-950">생성 모델</h2>
             <p className="mt-1 text-sm text-zinc-500">{profile?.email}</p>
           </div>
-          <Link
-            href="/upload"
-            className="rounded-md bg-zinc-950 px-4 py-2 text-sm font-semibold text-white hover:bg-zinc-800"
-          >
-            새 모델 생성
-          </Link>
+          <div className="flex items-center gap-2">
+            {profile?.role === "admin" ? (
+              <Link
+                href="/admin"
+                className="rounded-md border border-zinc-300 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50"
+              >
+                관리자 모델 업로드
+              </Link>
+            ) : null}
+            <Link
+              href="/upload"
+              className="rounded-md bg-zinc-950 px-4 py-2 text-sm font-semibold text-white hover:bg-zinc-800"
+            >
+              새 모델 생성
+            </Link>
+          </div>
         </div>
+
+        {actionError ? (
+          <p className="m-4 rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+            {actionError}
+          </p>
+        ) : null}
 
         {avatars.length === 0 ? (
           <div className="p-8 text-center text-sm text-zinc-500">
@@ -142,19 +211,29 @@ export function DashboardClient() {
         ) : (
           <div className="divide-y divide-zinc-200">
             {avatars.map((avatar) => (
-              <Link
+              <div
                 key={avatar.id}
-                href={`/result/${avatar.id}`}
-                className="grid gap-3 p-4 hover:bg-zinc-50 sm:grid-cols-[1fr_120px_120px_120px_120px]"
+                className="grid items-center gap-3 p-4 hover:bg-zinc-50 sm:grid-cols-[minmax(0,1fr)_100px_80px_70px_110px_72px]"
               >
-                <span className="font-medium text-zinc-950">
+                <Link
+                  href={`/result/${avatar.id}`}
+                  className="truncate font-medium text-zinc-950 hover:underline"
+                >
                   {avatar.title ?? "Untitled Mesh"}
-                </span>
+                </Link>
                 <span className="text-sm text-zinc-600">{avatar.status}</span>
                 <span className="text-sm text-zinc-600">{avatar.inputImageCount}장</span>
                 <span className="text-sm text-zinc-600">{avatar.qualityGrade}</span>
                 <span className="text-sm text-zinc-600">{avatar.modelSource}</span>
-              </Link>
+                <button
+                  type="button"
+                  onClick={() => void handleDelete(avatar)}
+                  disabled={deletingId !== null}
+                  className="rounded-md border border-red-200 px-3 py-2 text-sm font-semibold text-red-700 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {deletingId === avatar.id ? "삭제 중" : "삭제"}
+                </button>
+              </div>
             ))}
           </div>
         )}

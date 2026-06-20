@@ -4,11 +4,11 @@ export class StubHumanMeshProvider implements AIProvider {
   key = "replicate" as const;
   modelName = "stub-photorealistic-human-mesh";
 
-  async supports(_input: GenerationInput) {
+  async supports() {
     return true;
   }
 
-  async estimate(_input: GenerationInput) {
+  async estimate() {
     return {
       estimatedCost: null,
       estimatedSeconds: 180,
@@ -25,4 +25,16 @@ export class StubHumanMeshProvider implements AIProvider {
       },
     };
   }
+
+  async getJob(providerJobId: string) {
+    return {
+      status: "generating" as const,
+      raw: {
+        id: providerJobId,
+        mode: "development_stub",
+      },
+    };
+  }
+
+  async cancelJob() {}
 }
