@@ -11,6 +11,8 @@
 | Supabase SDK | `@supabase/supabase-js` 2.108.2 |
 | 현재 목표 | Replicate 결제 설정 후 실제 이미지→GLB E2E 검증 |
 
+> 2026-06-21 품질 검증 후 현재 목표를 Hybrid Head Reconstruction worker 구현으로 변경했다.
+
 ## 2. 제품 방향
 
 MeshSelfie는 캐릭터형 아바타 생성 서비스가 아니다. 목표 결과물은 사용자의 얼굴 사진을 기반으로 한 Photorealistic Human Mesh GLB 모델이다.
@@ -381,3 +383,32 @@ npm run build
 ```
 
 `.env.local`은 반드시 unstaged/ignored 상태여야 한다.
+
+## 12. 2026-06-21 품질 방향 전환
+
+실제 `firtoz/trellis` E2E는 성공했지만 얼굴 동일성과 mesh detail이 제품 기준에 미달했다.
+
+- 테스트 결과 GLB: 약 1.1MB, 6,542 vertices, 10,898 triangles, 1024×1024 texture
+- TRELLIS 기본 GLB 추출은 `mesh_simplify=0.95`로 triangle의 95%를 제거한다.
+- TRELLIS는 범용 3D asset 모델이며 얼굴 identity reconstruction 전용 모델이 아니다.
+- 다중 이미지 conditioning도 전문 multi-view face fitting을 대체하지 못한다.
+- 기존 `A/A+` 등급은 사진 개수일 뿐 실제 결과 품질 보장이 아니다.
+
+결정:
+
+1. 얼굴·귀·턱·목은 FLAME 계열 shared-identity multi-view fitting으로 복원한다.
+2. 피부는 2K~4K multi-view UV texture로 합성한다.
+3. 머리카락은 segmentation 기반 low-detail hair shell로 처리한다.
+4. DECA 공개 가중치는 비상업 라이선스이므로 상용 기본 Provider에 포함하지 않는다.
+5. Python GPU worker를 `self_hosted` Provider로 연결하고 TRELLIS는 fallback/비교용으로 유지한다.
+
+이번 기반 구현:
+
+- `HEAD_RECONSTRUCTION_*` 환경 변수와 우선 Provider 선택
+- 비동기 worker 생성/조회/취소 adapter
+- worker 결과 GLB host allowlist
+- JPG/PNG 실제 해상도 판독
+- 512px 미만 hard fail, 1024px 미만 warning 및 DB width/height 저장
+- 업로드 화면의 고정밀 두상 촬영 가이드
+
+상세 설계: `docs/hybrid-head-reconstruction.md`

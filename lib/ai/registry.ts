@@ -1,9 +1,18 @@
 import type { AIProvider } from "@/lib/ai/interface";
+import { HeadReconstructionProvider } from "@/lib/ai/providers/head-reconstruction";
 import { ReplicateHumanMeshProvider } from "@/lib/ai/providers/replicate";
 import { StubHumanMeshProvider } from "@/lib/ai/providers/stub";
-import { getReplicateEnv } from "@/lib/env";
+import {
+  getHeadReconstructionEnv,
+  getReplicateEnv,
+  isHeadReconstructionConfigured,
+} from "@/lib/env";
 
 export function getDefaultAIProvider(): AIProvider {
+  if (isHeadReconstructionConfigured()) {
+    return createHeadReconstructionProvider();
+  }
+
   const { apiToken, modelVersion } = getReplicateEnv();
   return apiToken
     ? new ReplicateHumanMeshProvider(apiToken, modelVersion)
@@ -15,6 +24,22 @@ export function getAIProviderForJob(modelName: string): AIProvider | null {
     return new StubHumanMeshProvider();
   }
 
-  const provider = getDefaultAIProvider();
-  return provider.modelName === modelName ? provider : null;
+  const headProvider = createHeadReconstructionProvider();
+
+  if (isHeadReconstructionConfigured() && headProvider.modelName === modelName) {
+    return headProvider;
+  }
+
+  const { apiToken, modelVersion } = getReplicateEnv();
+
+  if (apiToken && modelName === "firtoz/trellis") {
+    return new ReplicateHumanMeshProvider(apiToken, modelVersion);
+  }
+
+  return null;
+}
+
+function createHeadReconstructionProvider() {
+  const { apiUrl, apiKey, modelName } = getHeadReconstructionEnv();
+  return new HeadReconstructionProvider(modelName, apiUrl, apiKey);
 }

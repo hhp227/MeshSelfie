@@ -21,6 +21,8 @@ MVP의 핵심 목표는 완성도 높은 풀 기능 플랫폼이 아니라, "정
 | 사용 경험 | 정면 사진을 필수로 업로드하고, 측면 사진과 좌/우 중 하나의 45도 사진을 선택으로 추가해 3D 스캔에 가까운 결과물을 생성하고 웹에서 검수한 뒤 다운로드 |
 | 주요 품질 기준 | 얼굴 윤곽, 눈/코/입 위치, 얼굴 비율, 피부 톤, 주요 텍스처가 원본 사진과 유사해야 함 |
 
+MVP 품질 구현은 얼굴·귀·턱·목을 우선 고정밀 복원하고 머리카락은 저해상도 hair shell로 근사하는 Hybrid Head Reconstruction을 기본으로 한다. 범용 image-to-3D 결과는 fallback 및 비교 대상으로만 사용한다.
+
 ### 비목표
 
 | 항목 | 설명 |
@@ -614,7 +616,8 @@ Provider Registry는 DB의 `ai_provider_versions`와 서버 설정을 조합해 
 | Provider | 용도 |
 | --- | --- |
 | Replicate | 외부 모델 실행 gateway |
-| TRELLIS | 고품질 3D 생성 후보 |
+| Hybrid Head Worker | FLAME 계열 multi-view fitting, 피부 UV 합성, low-detail hair shell을 담당하는 기본 후보 |
+| TRELLIS | 범용 3D asset fallback 및 품질 비교 |
 | Hunyuan3D | 실사형 mesh 생성 후보 |
 | TripoSR | 빠른 reconstruction 후보 |
 | 자체 모델 | 비용/품질 최적화 후 장기 도입 |

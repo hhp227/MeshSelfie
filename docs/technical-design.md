@@ -131,6 +131,10 @@ AI Provider Layer
 5. `human_meshes.status`를 `completed`로 변경한다.
 6. 사용자는 signed URL로 모델을 보고 다운로드한다.
 
+### 4.5 Hybrid Head Reconstruction
+
+기본 품질 목표는 얼굴·귀·턱·목의 고정밀 복원과 저해상도 hair shell의 결합이다. Next.js는 작업 orchestration을 담당하고 Python GPU worker는 얼굴 정렬, shared-identity FLAME fitting, detail displacement, multi-view UV texture, hair shell, GLB export를 수행한다. worker가 설정되지 않은 개발 환경에서는 Replicate 또는 stub을 fallback으로 사용한다.
+
 ## 5. Pipeline 상태
 
 | 상태 | 담당 | 의미 |
@@ -190,6 +194,8 @@ export interface AIProvider {
   cancelJob(providerJobId: string): Promise<void>
 }
 ```
+
+`self_hosted`의 기본 모델 계약은 `hybrid-flame-head-v1`이며 `targetRegion=head_neck`, `faceDetail=high`, `hairDetail=low`를 고정한다. 자세한 worker API는 `docs/hybrid-head-reconstruction.md`를 따른다.
 
 ### Registry 규칙
 

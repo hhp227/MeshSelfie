@@ -50,7 +50,13 @@ export function ResultClient({ meshId }: { meshId: string }) {
 
   useEffect(() => {
     let cancelled = false;
-    let intervalId: ReturnType<typeof setInterval> | null = null;
+    let timeoutId: ReturnType<typeof setTimeout> | null = null;
+
+    function scheduleReload() {
+      timeoutId = setTimeout(() => {
+        void loadMesh();
+      }, 2500);
+    }
 
     async function loadMesh() {
       if (!supabase) {
@@ -76,6 +82,11 @@ export function ResultClient({ meshId }: { meshId: string }) {
 
       if (!result.ok) {
         const body = await result.json();
+
+        if (cancelled) {
+          return;
+        }
+
         setError(body.error?.message ?? "모델 정보를 불러오지 못했습니다.");
         setLoading(false);
         return;
@@ -116,23 +127,22 @@ export function ResultClient({ meshId }: { meshId: string }) {
 
       setMesh(json.data);
       setLoading(false);
+
+      if (!FINAL_STATUSES.has(json.data.status)) {
+        scheduleReload();
+      }
     }
 
     void loadMesh();
-    intervalId = setInterval(() => {
-      if (!mesh || !FINAL_STATUSES.has(mesh.status)) {
-        void loadMesh();
-      }
-    }, 2500);
 
     return () => {
       cancelled = true;
 
-      if (intervalId) {
-        clearInterval(intervalId);
+      if (timeoutId) {
+        clearTimeout(timeoutId);
       }
     };
-  }, [mesh, meshId, signedUrlRefresh, supabase]);
+  }, [meshId, signedUrlRefresh, supabase]);
 
   async function handleDownload() {
     if (!supabase) {

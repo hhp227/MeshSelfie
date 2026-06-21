@@ -132,6 +132,13 @@ export function UploadForm() {
 
   return (
     <form onSubmit={handleSubmit} className="grid gap-5">
+      <div className="rounded-lg border border-blue-200 bg-blue-50 p-4 text-sm text-blue-950">
+        <p className="font-semibold">고정밀 얼굴·목 복원 촬영 기준</p>
+        <p className="mt-1 leading-6 text-blue-900">
+          가로·세로 최소 512px, 권장 1024px 이상 · 머리와 목 중심 · 동일한 표정과
+          조명 · 머리카락이 귀, 턱선, 목을 가리지 않는 사진을 사용해주세요.
+        </p>
+      </div>
       <div className="grid gap-4 md:grid-cols-3">
         <UploadSlot
           title="정면 사진"

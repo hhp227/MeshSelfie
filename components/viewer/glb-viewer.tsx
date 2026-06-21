@@ -121,7 +121,11 @@ export function GlbViewer({ modelUrl, onSignedUrlExpired }: GlbViewerProps) {
   }, [loadAttempt, modelUrl]);
 
   function retry() {
-    onSignedUrlExpired?.();
+    if (onSignedUrlExpired) {
+      onSignedUrlExpired();
+      return;
+    }
+
     setLoadAttempt((attempt) => attempt + 1);
   }
 

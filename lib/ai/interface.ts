@@ -11,6 +11,9 @@ export type GenerationInput = {
   angle45ImageUrl?: string;
   angle45Direction?: ImageDirection;
   qualityGrade: QualityGrade;
+  targetRegion?: "head_neck";
+  faceDetail?: "high";
+  hairDetail?: "low";
   outputFormat: "glb";
 };
 

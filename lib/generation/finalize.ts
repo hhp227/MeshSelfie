@@ -1,5 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
+import { getHeadReconstructionEnv } from "@/lib/env";
+
 const MODEL_BUCKET = "avatars";
 const MAX_GLB_BYTES = 50 * 1024 * 1024;
 const DOWNLOAD_TIMEOUT_MS = 60_000;
@@ -172,9 +174,18 @@ function assertTrustedOutputUrl(outputUrl: string) {
     );
   }
 
+  const hostname = url.hostname.toLowerCase();
+  const { apiUrl, outputHosts } = getHeadReconstructionEnv();
+  const workerApiHost = getHostname(apiUrl);
+  const trustedWorkerHosts = new Set([...outputHosts, ...(workerApiHost ? [workerApiHost] : [])]);
+  const secureProtocol =
+    url.protocol === "https:" ||
+    (url.protocol === "http:" && (hostname === "localhost" || hostname === "127.0.0.1"));
   const trustedHost =
-    url.protocol === "https:" &&
-    (url.hostname === "replicate.delivery" || url.hostname.endsWith(".replicate.delivery"));
+    secureProtocol &&
+    (hostname === "replicate.delivery" ||
+      hostname.endsWith(".replicate.delivery") ||
+      trustedWorkerHosts.has(hostname));
 
   if (!trustedHost) {
     throw new GenerationFinalizationError(
@@ -182,6 +193,18 @@ function assertTrustedOutputUrl(outputUrl: string) {
       "AI Provider 결과 URL을 신뢰할 수 없습니다.",
       `Provider output host is not allowed: ${url.hostname}`,
     );
+  }
+}
+
+function getHostname(value: string) {
+  if (!value) {
+    return null;
+  }
+
+  try {
+    return new URL(value).hostname.toLowerCase();
+  } catch {
+    return null;
   }
 }
 

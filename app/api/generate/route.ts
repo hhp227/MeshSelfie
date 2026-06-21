@@ -210,6 +210,9 @@ export async function POST(request: Request) {
       angle45ImageUrl: signedUrls[2] ?? undefined,
       angle45Direction: angle45?.image_direction ?? undefined,
       qualityGrade,
+      targetRegion: "head_neck",
+      faceDetail: "high",
+      hairDetail: "low",
       outputFormat: "glb",
     });
   } catch (providerError) {

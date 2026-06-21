@@ -5,8 +5,12 @@ import { jsonError } from "@/lib/api";
 import {
   getImageExtension,
   parseDirection,
+  readImageDimensions,
+  RECOMMENDED_IMAGE_DIMENSION,
   sha256Hex,
+  validateImageDimensions,
   validateImageFile,
+  type ImageDimensions,
   type ImageDirection,
   type ImageRole,
 } from "@/lib/uploads";
@@ -16,6 +20,11 @@ type UploadEntry = {
   file: File;
   direction: ImageDirection | null;
   label: string;
+};
+
+type ValidatedUploadEntry = UploadEntry & {
+  dimensions: ImageDimensions;
+  validationWarnings: string[];
 };
 
 type UploadedSourceImage = {
@@ -79,18 +88,50 @@ export async function POST(request: Request) {
     });
   }
 
+  const validatedFiles: ValidatedUploadEntry[] = [];
+
   for (const entry of files) {
     const validationError = validateImageFile(entry.file, entry.label);
 
     if (validationError) {
       return jsonError("IMAGE_VALIDATION_FAILED", validationError, 400);
     }
+
+    const dimensions = await readImageDimensions(entry.file);
+
+    if (!dimensions) {
+      return jsonError(
+        "IMAGE_DECODE_FAILED",
+        `${entry.label}의 이미지 정보를 읽을 수 없습니다. 올바른 JPG 또는 PNG 파일을 선택해주세요.`,
+        400,
+      );
+    }
+
+    const dimensionError = validateImageDimensions(dimensions, entry.label);
+
+    if (dimensionError) {
+      return jsonError("IMAGE_RESOLUTION_TOO_LOW", dimensionError, 400);
+    }
+
+    const validationWarnings: string[] = [];
+
+    if (
+      dimensions.width < RECOMMENDED_IMAGE_DIMENSION ||
+      dimensions.height < RECOMMENDED_IMAGE_DIMENSION
+    ) {
+      validationWarnings.push(
+        `고정밀 두상 복원에는 가로·세로 ${RECOMMENDED_IMAGE_DIMENSION}px 이상을 권장합니다.`,
+      );
+    }
+
+    validationWarnings.push("얼굴 검출·가림·흐림 자동 검증은 후속 Vision 단계에서 추가됩니다.");
+    validatedFiles.push({ ...entry, dimensions, validationWarnings });
   }
 
   const uploadGroupId = randomUUID();
   const uploaded: UploadedSourceImage[] = [];
 
-  for (const entry of files) {
+  for (const entry of validatedFiles) {
     const sourceImageId = randomUUID();
     const extension = getImageExtension(entry.file.type);
     const objectPath = `images/${user.id}/uploads/${uploadGroupId}/${entry.role}.${extension}`;
@@ -117,11 +158,11 @@ export async function POST(request: Request) {
       original_filename: entry.file.name || `${entry.role}.${extension}`,
       content_type: entry.file.type,
       file_size_bytes: entry.file.size,
+      width: entry.dimensions.width,
+      height: entry.dimensions.height,
       checksum_sha256: checksum,
       validation_status: "pending",
-      validation_warnings: [
-        "자동 얼굴 품질 검증은 다음 단계에서 Vision 검증기로 대체됩니다.",
-      ],
+      validation_warnings: entry.validationWarnings,
     });
 
     if (insertError) {
