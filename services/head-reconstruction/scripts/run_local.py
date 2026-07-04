@@ -52,6 +52,13 @@ def main() -> None:
             f"jaw 잔차(px): {mesh.metadata.get('jaw_residual_px_before')} → {mesh.metadata.get('jaw_residual_px_after')}"
         )
         print(f"shape norm: {mesh.metadata.get('shape_norm'):.2f}")
+        pb = mesh.metadata.get("photo_residual_before")
+        pa = mesh.metadata.get("photo_residual_after")
+        if pb is not None:
+            print(
+                f"photometric 뷰: {mesh.metadata.get('photometric_views')}, "
+                f"잔차: {pb:.4f} → {pa:.4f}"
+            )
     else:
         print("relief 파이프라인 (Milestone 0)")
         mesh = build_face_relief_mesh(front)

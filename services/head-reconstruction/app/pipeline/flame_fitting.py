@@ -36,7 +36,15 @@ from app.pipeline.texture_bake import bake_multiview_texture, generate_uv_atlas
 STAGE1_ITERS = 200
 STAGE2_ITERS = 600
 STAGE3_ITERS = 250  # landmark + silhouette 결합 단계
+STAGE4_ITERS = 300  # photometric (음영 잔차) 단계
 CANCEL_CHECK_EVERY = 50
+
+# --- photometric 손실 설정 ---
+W_PHOTO = 1.5
+W_ALBEDO_SMOOTH = 2.0
+W_ALBEDO_POSITIVE = 1.0
+W_ANCHOR = 1e-2  # stage-3 결과 대비 shape/expression 드리프트 벌점
+RASTER_REFRESH_EVERY = 60
 
 # --- silhouette 손실 설정 ---
 # MediaPipe 105 landmark embedding에는 턱 윤곽(face oval) 점이 하나도 없어
@@ -82,6 +90,7 @@ class SilhouetteField:
     width: int
     height: int
     face_scale: float  # face-skin bbox 대각선(px) — 정규화 기준
+    face_mask: Optional[np.ndarray] = None  # photometric 단계에서 재사용
 
 
 def _prepare_silhouette_field(image: Image.Image) -> Optional[SilhouetteField]:
@@ -128,6 +137,7 @@ def _prepare_silhouette_field(image: Image.Image) -> Optional[SilhouetteField]:
         width=face.shape[1],
         height=face.shape[0],
         face_scale=max(face_scale, 1.0),
+        face_mask=face,
     )
 
 
@@ -408,6 +418,118 @@ def build_flame_head_mesh(
 
     check_cancel(0)
 
+    # --- 4단계: photometric — 음영 잔차로 shape/expression 미세조정 ---
+    photo_residual_before: Optional[float] = None
+    photo_residual_after: Optional[float] = None
+    photometric_views = 0
+
+    if silhouette_fields and face_indices is not None:
+        from app.pipeline import photometric as pm
+
+        # FLAME face 패치 서브셋 (photometric은 얼굴 피부에서만 계산)
+        id_map = np.full(model.v_template.shape[0], -1, dtype=np.int64)
+        id_map[face_indices] = np.arange(face_indices.size)
+        keep = np.isin(model.faces, face_indices).all(axis=1)
+        subset_faces_np = id_map[model.faces[keep]]
+        subset_faces_t = torch.from_numpy(subset_faces_np)
+        face_ids_t = torch.from_numpy(face_indices)
+
+        photo_views: list[tuple[int, pm.PhotometricView]] = []
+        for view_index, field in silhouette_fields:
+            if field.face_mask is None:
+                continue
+            photo_views.append(
+                (
+                    view_index,
+                    pm.build_photometric_view(
+                        observations[view_index].image, field.face_mask, field.face_scale
+                    ),
+                )
+            )
+
+        if photo_views:
+            photometric_views = len(photo_views)
+
+            def refresh_rasters() -> None:
+                with torch.no_grad():
+                    for view_index, pview in photo_views:
+                        verts = model.forward(shape, expression, compose_pose(view_index))
+                        proj = project(verts, view_index).numpy()
+                        pm.refresh_raster(pview, proj, subset_faces_np, face_indices)
+
+            refresh_rasters()
+
+            # albedo/SH 초기화 (첫 photometric 뷰 = 정면 기준)
+            with torch.no_grad():
+                first_index, first_view = photo_views[0]
+                verts0 = model.forward(shape, expression, compose_pose(first_index))
+                proj0 = project(verts0[face_ids_t], first_index).numpy()
+            albedo0, sh0 = pm.init_albedo_and_sh(
+                first_view, verts0[face_ids_t], subset_faces_t, proj0
+            )
+            albedo = albedo0.clone().requires_grad_(True)
+            sh_coeffs = [sh0.clone().requires_grad_(True) for _ in photo_views]
+            laplacian = pm.albedo_laplacian(subset_faces_np, face_indices.size)
+
+            shape_anchor = shape.detach().clone()
+            expr_anchor = expression.detach().clone()
+
+            def photometric_term() -> torch.Tensor:
+                total = torch.zeros(())
+                for slot, (view_index, pview) in enumerate(photo_views):
+                    if pview.pixel_tri is None or pview.pixel_tri.numel() == 0:
+                        continue
+                    verts = model.forward(shape, expression, compose_pose(view_index))
+                    rendered, target = pm.render_pixels(
+                        pview, verts[face_ids_t], subset_faces_t, albedo, sh_coeffs[slot]
+                    )
+                    total = total + torch.nn.functional.smooth_l1_loss(
+                        rendered, target, beta=0.1
+                    )
+                return total / max(len(photo_views), 1)
+
+            with torch.no_grad():
+                photo_residual_before = float(photometric_term())
+
+            optimizer = torch.optim.Adam(
+                [
+                    {"params": [shape, expression], "lr": 0.004},
+                    {"params": [albedo], "lr": 0.02},
+                    {"params": sh_coeffs, "lr": 0.02},
+                ]
+            )
+            for step in range(STAGE4_ITERS):
+                check_cancel(step)
+                if step > 0 and step % RASTER_REFRESH_EVERY == 0:
+                    refresh_rasters()
+                if step % CONTOUR_REFRESH_EVERY == 0:
+                    refresh_contours()
+                optimizer.zero_grad()
+                lmk = sum(view_landmark_loss(i) for i in range(len(observations))) / len(
+                    observations
+                )
+                smooth_albedo = torch.sparse.mm(laplacian, albedo)
+                loss = (
+                    lmk
+                    + silhouette_loss()
+                    + W_PHOTO * photometric_term()
+                    + W_ALBEDO_SMOOTH * ((albedo - smooth_albedo) ** 2).mean()
+                    + W_ALBEDO_POSITIVE * torch.relu(-albedo).mean()
+                    + W_ANCHOR * ((shape - shape_anchor) ** 2).mean()
+                    + W_ANCHOR * ((expression - expr_anchor) ** 2).mean()
+                    + W_SHAPE_REG * (shape**2).mean()
+                    + W_EXPR_REG * (expression**2).mean()
+                )
+                loss.backward()
+                optimizer.step()
+                final_lmk_loss = float(lmk.detach())
+
+            with torch.no_grad():
+                refresh_rasters()
+                photo_residual_after = float(photometric_term())
+
+    check_cancel(0)
+
     # --- hair mask (정면 뷰) — 실패해도 head 생성은 계속한다 ---
     front_obs = observations[0]
     hair_mask: Optional[np.ndarray] = None
@@ -508,6 +630,9 @@ def build_flame_head_mesh(
     scene.metadata["silhouette_views"] = len(silhouette_fields)
     scene.metadata["jaw_residual_px_before"] = jaw_residual_before
     scene.metadata["jaw_residual_px_after"] = jaw_residual_after
+    scene.metadata["photometric_views"] = photometric_views
+    scene.metadata["photo_residual_before"] = photo_residual_before
+    scene.metadata["photo_residual_after"] = photo_residual_after
     return scene
 
 
