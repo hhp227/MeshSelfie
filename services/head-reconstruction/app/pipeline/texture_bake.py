@@ -59,7 +59,10 @@ def bake_multiview_texture(
     """뷰 리스트를 블렌딩한 (tex_size, tex_size) RGB 텍스처를 만든다.
 
     views 원소: {role, image(H,W,3 float32), width, height,
-                 posed_verts(V,3), projected_px(V,2)}
+                 posed_verts(V,3), projected_px(V,2), valid_mask(H,W bool)?}
+
+    valid_mask가 있으면 그 밖(옷·배경 등)에 투영되는 텍셀은 해당 뷰에서
+    가중치 0이 된다 — 목에 옷/액세서리 텍스처가 입혀지는 것을 막는다.
 
     override_face_mask(F,)가 주어지면 해당 삼각형의 관측이 약한 텍셀을
     override_color(3,)로 덮는다 — 사진에서 거의 보이지 않는 두피를 피부색
@@ -117,6 +120,10 @@ def bake_multiview_texture(
         )
 
         weight = texel_facing * visible.astype(np.float64) * inside.astype(np.float64)
+
+        valid_mask = view.get("valid_mask")
+        if valid_mask is not None:
+            weight = weight * valid_mask[iy, ix].astype(np.float64)
         color = _sample_bilinear(view["image"], texel_px)
 
         accum_color += color * weight[:, None]

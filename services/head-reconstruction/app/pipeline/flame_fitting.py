@@ -26,6 +26,7 @@ from app.pipeline.flame_model import FlameModel, NUM_EXPR, NUM_SHAPE, _load_flam
 from app.pipeline.hair_shell import build_hair_shell
 from app.pipeline.landmarks import detect_face_landmarks
 from app.pipeline.segmentation import (
+    CATEGORY_BODY_SKIN,
     CATEGORY_FACE_SKIN,
     CATEGORY_HAIR,
     detect_hair_mask,
@@ -554,6 +555,24 @@ def build_flame_head_mesh(
         for index, obs in enumerate(observations):
             posed = model.forward(shape, expression, compose_pose(index))
             projected = project(posed, index)
+
+            # 유효 텍스처 소스 = 머리카락∪몸피부∪얼굴피부. 옷/초커/배경이
+            # 목·턱 텍스처로 투영되는 것을 막는다 (실패 시 제한 없음).
+            valid_mask = None
+            try:
+                view_masks = segment_masks(
+                    obs.image, (CATEGORY_HAIR, CATEGORY_BODY_SKIN, CATEGORY_FACE_SKIN)
+                )
+                valid_mask = (
+                    view_masks[CATEGORY_HAIR]
+                    | view_masks[CATEGORY_BODY_SKIN]
+                    | view_masks[CATEGORY_FACE_SKIN]
+                )
+                # 경계 픽셀은 옷/초커 색이 섞여 있으므로 살짝 침식해 배제
+                valid_mask = ndimage.binary_erosion(valid_mask, iterations=3)
+            except PipelineError:
+                valid_mask = None
+
             bake_views.append(
                 {
                     "role": obs.role,
@@ -562,6 +581,7 @@ def build_flame_head_mesh(
                     "height": obs.height,
                     "posed_verts": posed.numpy(),
                     "projected_px": projected.numpy(),
+                    "valid_mask": valid_mask,
                 }
             )
 

@@ -48,7 +48,10 @@ def build_hair_shell(
     if hair_mask.mean() < MIN_HAIR_AREA_RATIO:
         return None
 
-    # 마스크 경계의 픽셀 계단을 완화해 실루엣을 둥글게 만든다
+    # 얇은 앞머리 가닥(스파이크)은 이마 위에 떠 있는 리본 지오메트리가 되므로
+    # 가로로 넓은 구조 요소의 opening으로 세로 가닥만 제거한다
+    # (정사각 구조는 넓은 앞머리 덩어리까지 깎아서 곤란)
+    hair_mask = ndimage.binary_opening(hair_mask, structure=np.ones((3, 13)), iterations=2)
     hair_mask = (
         ndimage.gaussian_filter(hair_mask.astype(np.float64), MASK_SMOOTH_SIGMA_PX) > 0.5
     )
@@ -145,33 +148,53 @@ def build_hair_shell(
     num_nodes = front_verts.shape[0]
     back_faces_np = front_faces_np[:, [0, 2, 1]] + num_nodes
 
-    # --- 경계 봉합 (앞시트 boundary edge → 옆면 quad) ---
-    side_faces: list[list[int]] = []
-    for a, b in _boundary_edges(front_faces_np):
-        side_faces.append([a, b, b + num_nodes])
-        side_faces.append([a, b + num_nodes, a + num_nodes])
-
-    all_verts = np.concatenate([front_verts, back_verts], axis=0)
-    all_faces = np.concatenate(
-        [front_faces_np, back_faces_np, np.asarray(side_faces, dtype=np.int64)], axis=0
-    )
-
     # --- 텍스처: hair bbox 크롭 + 마스크 밖 픽셀 머리카락색 전파 ---
+    # 옆면 quad용 어두운 단색 패치를 하단에 덧붙인다 — 옆면에 시트 UV를 그대로
+    # 쓰면 늘어난 줄무늬로 보이기 때문.
     crop = np.asarray(image.convert("RGB"), dtype=np.float64)[y0 : y1 + 1, x0 : x1 + 1]
     crop_mask = hair_mask[y0 : y1 + 1, x0 : x1 + 1]
     crop_filled = _fill_holes(crop, crop_mask)
-    texture = Image.fromarray(np.clip(crop_filled, 0, 255).astype(np.uint8))
+
+    dark_color = crop_filled[crop_mask].mean(axis=0) * 0.55 if crop_mask.any() else np.array([40.0, 35.0, 33.0])
+    pad_rows = 16
+    dark_strip = np.tile(dark_color, (pad_rows, crop_filled.shape[1], 1))
+    canvas = np.concatenate([crop_filled, dark_strip], axis=0)
+    texture = Image.fromarray(np.clip(canvas, 0, 255).astype(np.uint8))
 
     crop_w = max(x1 - x0, 1)
-    crop_h = max(y1 - y0, 1)
+    canvas_h = crop_filled.shape[0] + pad_rows
     uv_single = np.stack(
         [
             (node_px[:, 0] - x0) / crop_w,
-            1.0 - (node_px[:, 1] - y0) / crop_h,
+            1.0 - (node_px[:, 1] - y0) / (canvas_h - 1),
         ],
         axis=1,
     )
     uv_all = np.concatenate([uv_single, uv_single], axis=0)
+    dark_uv = np.array([0.5, (pad_rows / 2) / (canvas_h - 1)])
+
+    # --- 경계 봉합 (옆면 quad는 어두운 패치 UV를 갖는 전용 정점 사용) ---
+    all_verts = np.concatenate([front_verts, back_verts], axis=0)
+    side_faces: list[list[int]] = []
+    side_verts: list[np.ndarray] = []
+    side_uvs: list[np.ndarray] = []
+
+    for a, b in _boundary_edges(front_faces_np):
+        base = all_verts.shape[0] + len(side_verts)
+        side_verts.extend(
+            [front_verts[a], front_verts[b], back_verts[b], back_verts[a]]
+        )
+        side_uvs.extend([dark_uv] * 4)
+        side_faces.append([base, base + 1, base + 2])
+        side_faces.append([base, base + 2, base + 3])
+
+    if side_verts:
+        all_verts = np.concatenate([all_verts, np.asarray(side_verts)], axis=0)
+        uv_all = np.concatenate([uv_all, np.asarray(side_uvs)], axis=0)
+
+    all_faces = np.concatenate(
+        [front_faces_np, back_faces_np, np.asarray(side_faces, dtype=np.int64)], axis=0
+    )
 
     material = trimesh.visual.material.PBRMaterial(
         baseColorTexture=texture,

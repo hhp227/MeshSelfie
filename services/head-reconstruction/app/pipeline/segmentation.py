@@ -15,6 +15,7 @@ from app.config import config
 from app.jobs import PipelineError
 
 CATEGORY_HAIR = 1
+CATEGORY_BODY_SKIN = 2
 CATEGORY_FACE_SKIN = 3
 CONFIDENCE_THRESHOLD = 0.5
 # 가장 큰 머리카락 영역 대비 이 비율보다 작은 조각은 노이즈로 제거한다
