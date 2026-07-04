@@ -18,17 +18,39 @@ import torch
 import trimesh
 from PIL import Image
 
+from scipy import ndimage
+
 from app.config import config
 from app.jobs import JobCanceled, PipelineError
 from app.pipeline.flame_model import FlameModel, NUM_EXPR, NUM_SHAPE, _load_flame_pickle
 from app.pipeline.hair_shell import build_hair_shell
 from app.pipeline.landmarks import detect_face_landmarks
-from app.pipeline.segmentation import detect_hair_mask
+from app.pipeline.segmentation import (
+    CATEGORY_FACE_SKIN,
+    CATEGORY_HAIR,
+    detect_hair_mask,
+    segment_masks,
+)
 from app.pipeline.texture_bake import bake_multiview_texture, generate_uv_atlas
 
 STAGE1_ITERS = 200
 STAGE2_ITERS = 600
+STAGE3_ITERS = 250  # landmark + silhouette 결합 단계
 CANCEL_CHECK_EVERY = 50
+
+# --- silhouette 손실 설정 ---
+# MediaPipe 105 landmark embedding에는 턱 윤곽(face oval) 점이 하나도 없어
+# (실측 확인) jaw snap이 턱선의 유일한 제약이다 — landmark와 충돌하지 않으므로
+# 비교적 강하게 준다.
+W_SIL_CONTAIN = 0.5  # 얼굴 정점이 보이는 머리(얼굴피부∪머리카락) 밖으로 나가는 벌점
+W_SIL_JAW = 0.6  # 모델 얼굴 윤곽 ↔ 신뢰 가능한 face-skin 경계 스냅
+JAW_SNAP_CAP_RATIO = 0.06  # face 대각선 대비 스냅 최대 거리(가림 영역 무시용)
+CONTOUR_REFRESH_EVERY = 25  # 윤곽 후보 정점 재선택 주기
+CONTOUR_ROW_BUCKET_PX = 6
+# face 경계 중 신뢰 구간: 얼굴 하반부(턱·볼)만. 하반부에서는 머리카락이 턱 뒤에
+# 있어 피부 경계가 곧 실루엣이지만, 상반부 경계는 앞머리 가림선이라 제외한다.
+JAW_TRUST_Y_START = 0.55  # face bbox 세로 기준 시작 비율
+MIN_FACE_MASK_RATIO = 0.005
 
 # 정규화 가중치. landmark 손실이 ~1e-4 수준이므로 이보다 한참 작아야
 # shape이 실제로 움직인다 — 1e-2로 두면 평균 두상에서 벗어나지 못해
@@ -49,6 +71,106 @@ class ViewObservation:
     width: int
     height: int
     target: torch.Tensor  # (105, 2) pixel landmarks
+
+
+@dataclass
+class SilhouetteField:
+    """뷰별 silhouette 손실용 거리 필드 (픽셀 단위, torch float32)."""
+
+    contain_dist: torch.Tensor  # (H,W) 얼굴피부∪머리카락 밖에서의 거리(안은 0)
+    jaw_dist: Optional[torch.Tensor]  # (H,W) 신뢰 가능한 face 경계까지 unsigned 거리
+    width: int
+    height: int
+    face_scale: float  # face-skin bbox 대각선(px) — 정규화 기준
+
+
+def _prepare_silhouette_field(image: Image.Image) -> Optional[SilhouetteField]:
+    try:
+        masks = segment_masks(image, (CATEGORY_HAIR, CATEGORY_FACE_SKIN))
+    except PipelineError:
+        return None
+
+    face = masks[CATEGORY_FACE_SKIN]
+    hair = masks[CATEGORY_HAIR]
+
+    if face.mean() < MIN_FACE_MASK_RATIO:
+        return None
+
+    face = ndimage.binary_fill_holes(
+        ndimage.binary_closing(face, structure=np.ones((5, 5)))
+    )
+    visible = face | hair
+
+    # containment: 보이는 머리 영역 밖 거리 (안쪽 0 → relu 불필요)
+    contain_dist = ndimage.distance_transform_edt(~visible)
+
+    # jaw snap: face 경계 중 얼굴 하반부(턱·볼)만 신뢰한다
+    boundary = face & ~ndimage.binary_erosion(face)
+    rows, cols = np.nonzero(face)
+    y_start = rows.min() + JAW_TRUST_Y_START * (rows.max() - rows.min())
+    trusted_rows = np.zeros_like(boundary)
+    trusted_rows[int(y_start) :, :] = True
+    reliable = boundary & trusted_rows
+
+    jaw_dist: Optional[torch.Tensor] = None
+    if reliable.sum() >= 30:
+        jaw_dist = torch.tensor(
+            ndimage.distance_transform_edt(~reliable), dtype=torch.float32
+        )
+
+    face_scale = float(
+        np.hypot(rows.max() - rows.min(), cols.max() - cols.min())
+    )
+
+    return SilhouetteField(
+        contain_dist=torch.tensor(contain_dist, dtype=torch.float32),
+        jaw_dist=jaw_dist,
+        width=face.shape[1],
+        height=face.shape[0],
+        face_scale=max(face_scale, 1.0),
+    )
+
+
+def _sample_field(field: torch.Tensor, points_px: torch.Tensor) -> torch.Tensor:
+    """(H,W) 필드를 (N,2) 픽셀 좌표에서 bilinear 샘플링 (좌표로 미분 가능)."""
+    height, width = field.shape
+    x = points_px[:, 0].clamp(0, width - 1 - 1e-4)
+    y = points_px[:, 1].clamp(0, height - 1 - 1e-4)
+    x0 = x.floor().long()
+    y0 = y.floor().long()
+    x1 = x0 + 1
+    y1 = y0 + 1
+    fx = x - x0.float()
+    fy = y - y0.float()
+
+    top = field[y0, x0] * (1 - fx) + field[y0, x1] * fx
+    bottom = field[y1, x0] * (1 - fx) + field[y1, x1] * fx
+    return top * (1 - fy) + bottom * fy
+
+
+def _contour_candidates(projected_face: torch.Tensor) -> torch.Tensor:
+    """행 버킷별 좌우 극점 = 현재 모델 얼굴의 이미지 윤곽 후보 (하반부만: 턱·볼).
+
+    FLAME face 마스크는 정면 얼굴 패치라 극점이 곧 윤곽이다. 상반부(이마·관자놀이)는
+    머리카락에 덮여 실루엣이 관측되지 않으므로 제외한다.
+    """
+    ys = projected_face[:, 1]
+    center_y = ys.mean()
+    lower = torch.nonzero(ys > center_y, as_tuple=False).squeeze(1)
+
+    if lower.numel() == 0:
+        return lower
+
+    buckets = (ys[lower] / CONTOUR_ROW_BUCKET_PX).long()
+    selected: list[int] = []
+
+    for bucket in buckets.unique():
+        members = lower[buckets == bucket]
+        xs = projected_face[members, 0]
+        selected.append(int(members[xs.argmin()]))
+        selected.append(int(members[xs.argmax()]))
+
+    return torch.tensor(sorted(set(selected)), dtype=torch.long)
 
 
 def flame_assets_available() -> bool:
@@ -183,6 +305,109 @@ def build_flame_head_mesh(
 
     check_cancel(0)
 
+    # --- 3단계: landmark + silhouette 결합 (턱선·볼 윤곽 정밀화) ---
+    face_indices = _face_vertex_indices()
+    silhouette_fields: list[tuple[int, SilhouetteField]] = []
+
+    if face_indices is not None:
+        for index, obs in enumerate(observations):
+            field = _prepare_silhouette_field(obs.image)
+            if field is not None:
+                silhouette_fields.append((index, field))
+
+    jaw_residual_before: Optional[float] = None
+    jaw_residual_after: Optional[float] = None
+
+    if silhouette_fields:
+        face_idx_tensor = torch.from_numpy(face_indices)
+
+        def silhouette_loss(collect_residual: bool = False) -> torch.Tensor:
+            nonlocal jaw_residual_after
+            total = torch.zeros(())
+            residuals: list[float] = []
+
+            for view_index, field in silhouette_fields:
+                verts = model.forward(shape, expression, compose_pose(view_index))
+                face_px = project(verts[face_idx_tensor], view_index)
+
+                # containment: 보이는 머리 영역 밖으로 나간 거리
+                contain = _sample_field(field.contain_dist, face_px) / field.face_scale
+                total = total + W_SIL_CONTAIN * (contain**2).mean()
+
+                # jaw snap: 모델 윤곽 후보 ↔ 신뢰 가능한 face 경계
+                if field.jaw_dist is not None:
+                    contour_ids = contour_cache.get(view_index)
+                    if contour_ids is not None and contour_ids.numel() > 0:
+                        raw = _sample_field(field.jaw_dist, face_px[contour_ids])
+                        cap = JAW_SNAP_CAP_RATIO * field.face_scale
+                        dist = raw.clamp(max=cap) / field.face_scale
+                        total = total + W_SIL_JAW * (dist**2).mean()
+                        if collect_residual:
+                            near = raw.detach()[raw.detach() < cap]
+                            if near.numel() > 0:
+                                residuals.append(float(near.mean()))
+
+            if collect_residual and residuals:
+                jaw_residual_after = sum(residuals) / len(residuals)
+
+            return total
+
+        contour_cache: dict[int, torch.Tensor] = {}
+
+        def refresh_contours() -> None:
+            with torch.no_grad():
+                for view_index, _field in silhouette_fields:
+                    verts = model.forward(shape, expression, compose_pose(view_index))
+                    face_px = project(verts[face_idx_tensor], view_index)
+                    contour_cache[view_index] = _contour_candidates(face_px)
+
+        refresh_contours()
+
+        with torch.no_grad():
+            residuals = []
+            for view_index, field in silhouette_fields:
+                if field.jaw_dist is None:
+                    continue
+                verts = model.forward(shape, expression, compose_pose(view_index))
+                face_px = project(verts[face_idx_tensor], view_index)
+                ids = contour_cache[view_index]
+                if ids.numel() > 0:
+                    raw = _sample_field(field.jaw_dist, face_px[ids])
+                    near = raw[raw < JAW_SNAP_CAP_RATIO * field.face_scale]
+                    if near.numel() > 0:
+                        residuals.append(float(near.mean()))
+            if residuals:
+                jaw_residual_before = sum(residuals) / len(residuals)
+
+        optimizer = torch.optim.Adam(
+            [
+                {"params": global_rots + cam_scales + cam_transes, "lr": 0.005},
+                {"params": [shape, expression], "lr": 0.01},
+                {"params": [neck_pose, jaw_pose], "lr": 0.003},
+            ]
+        )
+        for step in range(STAGE3_ITERS):
+            check_cancel(step)
+            if step % CONTOUR_REFRESH_EVERY == 0:
+                refresh_contours()
+            optimizer.zero_grad()
+            lmk = sum(view_landmark_loss(i) for i in range(len(observations))) / len(
+                observations
+            )
+            loss = (
+                lmk
+                + silhouette_loss(collect_residual=step == STAGE3_ITERS - 1)
+                + W_SHAPE_REG * (shape**2).mean()
+                + W_EXPR_REG * (expression**2).mean()
+                + W_NECK_REG * (neck_pose**2).sum()
+                + W_JAW_REG * (jaw_pose**2).sum()
+            )
+            loss.backward()
+            optimizer.step()
+            final_lmk_loss = float(lmk.detach())
+
+    check_cancel(0)
+
     # --- hair mask (정면 뷰) — 실패해도 head 생성은 계속한다 ---
     front_obs = observations[0]
     hair_mask: Optional[np.ndarray] = None
@@ -280,6 +505,9 @@ def build_flame_head_mesh(
     # 개인화 정도 관측용: 0에 가까우면 평균 두상과 다르지 않다는 뜻
     scene.metadata["shape_norm"] = float(shape.detach().norm())
     scene.metadata["expression_norm"] = float(expression.detach().norm())
+    scene.metadata["silhouette_views"] = len(silhouette_fields)
+    scene.metadata["jaw_residual_px_before"] = jaw_residual_before
+    scene.metadata["jaw_residual_px_after"] = jaw_residual_after
     return scene
 
 
@@ -316,6 +544,17 @@ def _analyze_side_profile(
         return analyze_side_view(image, verts_for_yaw, face_indices)
     except (PipelineError, ValueError):
         return None
+
+
+@lru_cache(maxsize=1)
+def _face_vertex_indices() -> Optional[np.ndarray]:
+    """FLAME_masks의 정면 얼굴 패치 정점 인덱스 (silhouette 손실용)."""
+    if not config.flame_masks_path.exists():
+        return None
+
+    masks = _load_flame_pickle(config.flame_masks_path)
+    face = np.asarray(masks.get("face", []), dtype=np.int64)
+    return face if face.size > 0 else None
 
 
 def _scalp_face_mask(model: FlameModel) -> Optional[np.ndarray]:

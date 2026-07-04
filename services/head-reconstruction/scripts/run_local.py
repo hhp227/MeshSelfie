@@ -47,6 +47,11 @@ def main() -> None:
             print(f"landmark loss (정규화 MSE): {loss:.6f}")
         print(f"사용된 뷰: {mesh.metadata.get('views_used')}")
         print(f"hair shell: {mesh.metadata.get('hair_shell')}, 측면 프로파일: {mesh.metadata.get('side_profile_used')}")
+        print(
+            f"silhouette 뷰: {mesh.metadata.get('silhouette_views')}, "
+            f"jaw 잔차(px): {mesh.metadata.get('jaw_residual_px_before')} → {mesh.metadata.get('jaw_residual_px_after')}"
+        )
+        print(f"shape norm: {mesh.metadata.get('shape_norm'):.2f}")
     else:
         print("relief 파이프라인 (Milestone 0)")
         mesh = build_face_relief_mesh(front)

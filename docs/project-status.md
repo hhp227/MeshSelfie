@@ -599,9 +599,27 @@ npm run build
 - **hair**: 마스크 gaussian 스무딩(σ=4), 그리드 56→88셀, sparse Laplacian 정점
   스무딩(4회, λ=0.5) — clay 렌더에서 계단 제거 확인. Modal 재배포 + E2E 통과.
 - **서비스 품질까지 남은 로드맵**(landmark-only fitting의 한계):
-  1. silhouette 손실 — 정면/45도 face-skin 경계를 distance transform으로
-     fitting에 추가(턱선·볼 폭 정밀화). 두상 상부는 hair 가림 때문에 제외 필요.
+  1. ~~silhouette 손실~~ → 구현 완료 (아래 절)
   2. photometric(텍스처/음영) 손실 — DECA류 접근을 상업 안전 구성으로 자체 구현.
      shape 디테일(광대·코 형상)의 실질적 개선은 여기서 나옴. GPU 필요.
   3. 귀 landmark — MediaPipe embedding 105점에는 귀가 없어 귀 형상은 사전 분포
      의존. 귀 검출기 추가 검토.
+
+### Silhouette 손실 구현 (턱선·볼 윤곽 정밀화)
+
+- **핵심 발견**: MediaPipe 105 landmark embedding에는 얼굴 윤곽(face oval) 점이
+  **0개** — 턱선은 지금까지 아무 제약 없이 FLAME 사전 분포로만 결정됐다.
+  silhouette 손실이 턱의 유일한 제약이므로 landmark와 충돌 없이 강하게 적용 가능.
+- stage-3(250 iter) 추가: landmark + ① containment(얼굴 정점이 얼굴피부∪머리카락
+  밖으로 나가는 거리 벌점) + ② jaw snap(모델 얼굴의 행별 좌우 극점 윤곽 ↔
+  face-skin 경계 unsigned distance field, cap 6%로 가림 영역 무시).
+  거리 필드는 EDT로 사전 계산하고 torch bilinear 샘플링으로 미분 연결.
+- **가림 처리 시행착오**: "머리카락 인접 경계 제외" 휴리스틱은 턱선까지 84%를
+  버림(오버레이로 확인 — 턱에서는 머리카락이 턱 뒤라 피부 경계가 곧 실루엣).
+  → 위치 기반(face bbox 세로 55% 이하 하반부만 신뢰)으로 교체. 앞머리 가림선
+  (상반부)만 배제된다.
+- 실측(front+angle45): jaw 잔차(스냅 대상 평균) 8.7px → **5.7px(-35%)**,
+  shape norm 5.7→8.4(개인화 증가), clay 렌더에서 평균 두상의 둥근 턱이
+  피사체의 V라인으로 변형됨을 확인. landmark 오차는 2.7→3.9e-4로 소폭 상승
+  (턱·볼을 실루엣에 맞추는 대가, 텍스처는 동일 카메라 투영이라 정렬 유지).
+- 파이프라인 ~120초 CPU(stage-3 추가분 +30초). Modal 재배포·E2E 통과.
