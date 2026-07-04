@@ -1,5 +1,32 @@
 # Head Reconstruction Worker
 
+> **PRD v2.0 피벗 진행 중**: Photogrammetry(COLMAP) 중심 복원으로 전환한다
+> (`docs/MeshSelfie_PRD_v2.0_Photogrammetry_Hybrid.md`). 아래 FLAME 파이프라인은
+> 보존되며, 새 Scan Worker는 `modal_scan_app.py`/`app/scan_main.py` 참고.
+
+## Scan Worker (v2.0, Photogrammetry)
+
+- 입력: 동영상(10~20초, MP4/MOV) URL 또는 사진 20~80장 URL 목록
+- 파이프라인: ffmpeg 프레임 추출(4fps, ≤72장) → COLMAP automatic_reconstructor
+  (sparse + CUDA dense + Poisson) → 최대 컴포넌트 → 20만 면 간소화(정점색 보존)
+  → vertex-color GLB
+- 배포: `modal deploy modal_scan_app.py` (T4 GPU, colmap/colmap 이미지 기반)
+- 스모크: `modal run modal_scan_app.py` (colmap/ffmpeg/GPU 확인)
+- API: FLAME worker와 동일한 `/v1/jobs` 상태 모델, 입력만
+  `{videoUrl | imageUrls[]}`
+
+### 촬영 가이드 (품질의 90%는 캡처가 결정)
+
+| 항목 | 권장 |
+| --- | --- |
+| 길이/해상도 | 10~20초, 1080p 이상 |
+| 궤도 | 카메라가 얼굴 높이에서 좌→우(또는 반대)로 천천히 180°+ 반원 이동 |
+| 피사체 | 완전 정지 — 표정 고정, 시선 한 곳 고정 (움직이면 재구성이 뭉개짐) |
+| 조명 | 균일한 확산광(창가/실내등). 강한 그림자·역광 금지 |
+| 구도 | 머리·목이 화면의 50% 이상 |
+| 머리카락 | 가능하면 묶거나 정리 (photogrammetry의 최대 난제) |
+
+
 MeshSelfie의 `self_hosted` Provider가 호출하는 Python worker. 설계 문서는
 `docs/hybrid-head-reconstruction.md`, API 계약을 소비하는 어댑터는
 `lib/ai/providers/head-reconstruction.ts`다.

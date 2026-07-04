@@ -1,5 +1,11 @@
 # MeshSelfie 프로젝트 진행 상태
 
+> **2026-07-05 방향 전환**: 3D 결과물 품질 판단에 따라 FLAME 기반 AI 생성에서
+> **Photogrammetry 중심 복원 + AI 후처리**(`docs/MeshSelfie_PRD_v2.0_Photogrammetry_Hybrid.md`)
+> 로 피벗한다. 입력이 사진 1~3장 → 동영상 10~20초 또는 사진 20~80장으로 바뀐다.
+> FLAME 파이프라인(M0~M4 + silhouette + photometric + hair preset)은 코드로
+> 보존되며, v2.0의 "AI Enhancement" 단계에서 부품으로 재활용을 검토한다.
+
 ## 1. 현재 기준
 
 | 항목 | 내용 |
