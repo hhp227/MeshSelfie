@@ -1,7 +1,10 @@
-"""Photogrammetry Scan Worker API (PRD v2.0).
+"""Photogrammetry Scan Worker API (PRD v2.0) — Modal 네이티브 구조.
 
-기존 /v1/jobs 계약과 동일한 상태 모델을 쓰되, 입력이 동영상 URL 또는
-다중 사진 URL이다. FLAME worker(main.py)와 분리 배포된다(GPU 필요).
+재구성(5~20분)은 인메모리 백그라운드 스레드가 아니라 spawn된 Modal GPU
+Function으로 실행한다. 백그라운드 스레드는 Modal 스케줄러에 보이지 않아
+유휴 회수 때 job이 유실되지만(실측), spawn된 Function 입력은 완료까지
+Modal이 추적·유지한다. 상태와 결과 GLB는 Volume(/data)에 영속화되어
+API 컨테이너가 재시작돼도 조회·다운로드가 유지된다.
 
 - POST /v1/jobs            {clientJobId, userId, input:{videoUrl?|imageUrls?}}
 - GET  /v1/jobs/{id}
@@ -10,6 +13,8 @@
 - GET  /healthz
 """
 
+import json
+import uuid
 from pathlib import Path
 from typing import Optional
 
@@ -18,11 +23,12 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 from app.config import config
-from app.jobs import Job, JobStore
-from app.pipeline.photogrammetry import run_scan
 
-app = FastAPI(title="MeshSelfie Photogrammetry Scan Worker", version="0.1.0")
-store = JobStore(max_workers=config.max_workers)
+DATA_ROOT = Path("/data")
+MODAL_APP_NAME = "meshselfie-scan"
+RECONSTRUCT_FUNCTION = "reconstruct"
+
+app = FastAPI(title="MeshSelfie Photogrammetry Scan Worker", version="0.2.0")
 
 
 class ScanInput(BaseModel):
@@ -61,16 +67,43 @@ def request_base_url(request: Request) -> str:
     return f"{proto}://{host}"
 
 
-def job_response(job: Job, base_url: str) -> dict:
-    body: dict = {"id": job.id, "status": job.status}
+def _reload_volume() -> None:
+    """다른 컨테이너(reconstruct)가 커밋한 최신 상태를 본다."""
+    try:
+        import modal
 
-    if job.status == "completed" and job.output_path:
-        body["output"] = {"glbUrl": f"{base_url}/files/{job.id}/mesh.glb"}
+        modal.Volume.from_name("meshselfie-scan-data").reload()
+    except Exception:  # noqa: BLE001 - reload 실패는 조회 지연일 뿐
+        pass
 
-    if job.status == "failed":
+
+def _job_dir(job_id: str) -> Path:
+    return DATA_ROOT / job_id
+
+
+def _read_status(job_id: str) -> Optional[dict]:
+    status_path = _job_dir(job_id) / "status.json"
+
+    if not status_path.exists():
+        return None
+
+    try:
+        return json.loads(status_path.read_text())
+    except (OSError, json.JSONDecodeError):
+        return None
+
+
+def job_response(job_id: str, state: dict, base_url: str) -> dict:
+    body: dict = {"id": job_id, "status": state.get("status", "generating")}
+
+    if body["status"] == "completed" and (_job_dir(job_id) / "mesh.glb").exists():
+        body["output"] = {"glbUrl": f"{base_url}/files/{job_id}/mesh.glb"}
+
+    if body["status"] == "failed":
+        error = state.get("error") or {}
         body["error"] = {
-            "code": job.error_code or "PIPELINE_FAILED",
-            "message": job.error_message or "재구성에 실패했습니다.",
+            "code": error.get("code", "PIPELINE_FAILED"),
+            "message": error.get("message", "재구성에 실패했습니다."),
         }
 
     return body
@@ -78,6 +111,8 @@ def job_response(job: Job, base_url: str) -> dict:
 
 @app.post("/v1/jobs", dependencies=[Depends(verify_bearer)])
 def create_job(request: CreateScanRequest, http_request: Request) -> dict:
+    import modal
+
     if request.input.outputFormat != "glb":
         raise HTTPException(
             status_code=400,
@@ -90,61 +125,78 @@ def create_job(request: CreateScanRequest, http_request: Request) -> dict:
             detail={"code": "SCAN_INPUT_REQUIRED", "message": "동영상 또는 사진 입력이 필요합니다."},
         )
 
-    job = store.create(client_job_id=request.clientJobId, user_id=request.userId)
-    work_dir = config.data_dir / job.id
-    video_url = request.input.videoUrl
-    image_urls = request.input.imageUrls or []
+    job_id = uuid.uuid4().hex
+    job_dir = _job_dir(job_id)
+    job_dir.mkdir(parents=True, exist_ok=True)
+    (job_dir / "status.json").write_text(json.dumps({"status": "queued"}))
 
-    def run(current: Job) -> str:
-        output = run_scan(
-            work_dir=work_dir,
-            video_url=video_url,
-            image_urls=image_urls,
-            is_canceled=lambda: current.cancel_requested,
-        )
-        return str(output)
+    reconstruct = modal.Function.from_name(MODAL_APP_NAME, RECONSTRUCT_FUNCTION)
+    call = reconstruct.spawn(
+        job_id=job_id,
+        video_url=request.input.videoUrl,
+        image_urls=request.input.imageUrls or [],
+    )
+    (job_dir / "call_id").write_text(call.object_id)
+    modal.Volume.from_name("meshselfie-scan-data").commit()
 
-    store.submit(job, run)
-    return job_response(job, request_base_url(http_request))
+    return job_response(job_id, {"status": "queued"}, request_base_url(http_request))
 
 
 @app.get("/v1/jobs/{job_id}", dependencies=[Depends(verify_bearer)])
 def get_job(job_id: str, http_request: Request) -> dict:
-    job = store.get(job_id)
+    _reload_volume()
+    state = _read_status(job_id)
 
-    if job is None:
+    if state is None:
         raise HTTPException(
             status_code=404,
             detail={"code": "JOB_NOT_FOUND", "message": "작업을 찾을 수 없습니다."},
         )
 
-    return job_response(job, request_base_url(http_request))
+    return job_response(job_id, state, request_base_url(http_request))
 
 
 @app.post("/v1/jobs/{job_id}/cancel", dependencies=[Depends(verify_bearer)])
 def cancel_job(job_id: str, http_request: Request) -> dict:
-    job = store.request_cancel(job_id)
+    import modal
 
-    if job is None:
+    _reload_volume()
+    state = _read_status(job_id)
+
+    if state is None:
         raise HTTPException(
             status_code=404,
             detail={"code": "JOB_NOT_FOUND", "message": "작업을 찾을 수 없습니다."},
         )
 
-    return job_response(job, request_base_url(http_request))
+    if state.get("status") in ("queued", "generating"):
+        call_id_path = _job_dir(job_id) / "call_id"
+        if call_id_path.exists():
+            try:
+                modal.FunctionCall.from_id(call_id_path.read_text().strip()).cancel()
+            except Exception:  # noqa: BLE001 - 이미 종료된 call 취소 실패는 무시
+                pass
+
+        state = {"status": "canceled"}
+        (_job_dir(job_id) / "status.json").write_text(json.dumps(state))
+        modal.Volume.from_name("meshselfie-scan-data").commit()
+
+    return job_response(job_id, state, request_base_url(http_request))
 
 
 @app.get("/files/{job_id}/mesh.glb")
 def download_glb(job_id: str) -> FileResponse:
-    job = store.get(job_id)
+    _reload_volume()
+    mesh_path = _job_dir(job_id) / "mesh.glb"
+    state = _read_status(job_id)
 
-    if job is None or job.status != "completed" or not job.output_path:
+    if state is None or state.get("status") != "completed" or not mesh_path.exists():
         raise HTTPException(
             status_code=404,
             detail={"code": "FILE_NOT_FOUND", "message": "완료된 GLB가 없습니다."},
         )
 
-    return FileResponse(job.output_path, media_type="model/gltf-binary", filename="mesh.glb")
+    return FileResponse(str(mesh_path), media_type="model/gltf-binary", filename="mesh.glb")
 
 
 @app.get("/healthz")
