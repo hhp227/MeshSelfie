@@ -1,6 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-import { getHeadReconstructionEnv } from "@/lib/env";
+import { getHeadReconstructionEnv, getScanReconstructionEnv } from "@/lib/env";
 
 const MODEL_BUCKET = "avatars";
 const MAX_GLB_BYTES = 50 * 1024 * 1024;
@@ -248,7 +248,12 @@ function assertTrustedOutputUrl(outputUrl: string) {
   const hostname = url.hostname.toLowerCase();
   const { apiUrl, outputHosts } = getHeadReconstructionEnv();
   const workerApiHost = getHostname(apiUrl);
-  const trustedWorkerHosts = new Set([...outputHosts, ...(workerApiHost ? [workerApiHost] : [])]);
+  const scanWorkerHost = getHostname(getScanReconstructionEnv().apiUrl);
+  const trustedWorkerHosts = new Set([
+    ...outputHosts,
+    ...(workerApiHost ? [workerApiHost] : []),
+    ...(scanWorkerHost ? [scanWorkerHost] : []),
+  ]);
   const secureProtocol =
     url.protocol === "https:" ||
     (url.protocol === "http:" && (hostname === "localhost" || hostname === "127.0.0.1"));

@@ -28,6 +28,7 @@ image = (
         "trimesh>=4.4",
         "pillow>=10.3",
         "fast-simplification>=0.1.7",
+        "networkx>=3.0",
     )
     .add_local_dir("app", "/root/worker/app", ignore=["**/__pycache__"])
 )
@@ -127,3 +128,36 @@ def smoke() -> str:
 @app.local_entrypoint()
 def main() -> None:
     print(smoke.remote())
+
+
+@app.function(image=image, cpu=2.0, timeout=300, volumes={"/data": volume})
+def debug_load(job_id: str) -> str:
+    """디버그: COLMAP 산출물 목록과 trimesh 로딩 결과 확인."""
+    import sys
+    from pathlib import Path
+
+    sys.path.insert(0, "/root/worker")
+    import trimesh
+
+    volume.reload()
+    job_dir = Path("/data") / job_id
+    lines = [f"job dir exists: {job_dir.exists()}"]
+
+    for pattern in ("colmap/dense/*/meshed-poisson.ply", "colmap/dense/*/fused.ply", "colmap/sparse/*", "frames"):
+        matches = sorted(job_dir.glob(pattern))
+        lines.append(f"{pattern}: {[str(m.relative_to(job_dir)) for m in matches][:5]}")
+
+    candidates = sorted(job_dir.glob("colmap/dense/*/meshed-poisson.ply")) or sorted(
+        job_dir.glob("colmap/dense/*/fused.ply")
+    )
+    if candidates:
+        target = candidates[0]
+        lines.append(f"loading: {target.name} ({target.stat().st_size:,} bytes)")
+        loaded = trimesh.load(str(target), force="mesh")
+        lines.append(f"type: {type(loaded).__name__}")
+        if hasattr(loaded, "geometry"):
+            lines.append(f"scene geoms: {[(k, type(v).__name__) for k, v in loaded.geometry.items()]}")
+        if hasattr(loaded, "vertices"):
+            lines.append(f"verts: {len(loaded.vertices)}")
+
+    return "\n".join(lines)

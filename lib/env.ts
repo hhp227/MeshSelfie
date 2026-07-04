@@ -55,3 +55,18 @@ export function isHeadReconstructionConfigured() {
   const { apiUrl, apiKey } = getHeadReconstructionEnv();
   return Boolean(apiUrl && apiKey);
 }
+
+/** PRD v2.0 photogrammetry scan worker (Modal GPU, 별도 배포). */
+export function getScanReconstructionEnv() {
+  return {
+    apiUrl: (process.env.SCAN_RECONSTRUCTION_API_URL ?? "").replace(/\/$/, ""),
+    apiKey: process.env.SCAN_RECONSTRUCTION_API_KEY ?? "",
+    modelName:
+      process.env.SCAN_RECONSTRUCTION_MODEL_NAME ?? "photogrammetry-colmap-v1",
+  };
+}
+
+export function isScanReconstructionConfigured() {
+  const { apiUrl, apiKey } = getScanReconstructionEnv();
+  return Boolean(apiUrl && apiKey);
+}

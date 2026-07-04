@@ -178,9 +178,13 @@ def _load_reconstructed_mesh(workspace: Path) -> trimesh.Trimesh:
             "재구성 결과가 비어 있습니다. 조명이 균일하고 겹침이 많은 입력을 사용해주세요.",
         )
 
-    loaded = trimesh.load(str(candidates[0]))
+    loaded = trimesh.load(str(candidates[0]), force="mesh")
 
-    if isinstance(loaded, trimesh.points.PointCloud) or len(loaded.faces) == 0:
+    if (
+        not isinstance(loaded, trimesh.Trimesh)
+        or loaded.faces is None
+        or len(loaded.faces) == 0
+    ):
         raise PipelineError(
             "RECONSTRUCTION_NO_MESH", "메쉬 생성에 실패했습니다 (점군만 생성됨)."
         )

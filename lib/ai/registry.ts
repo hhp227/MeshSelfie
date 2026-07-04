@@ -6,7 +6,9 @@ import { StubHumanMeshProvider } from "@/lib/ai/providers/stub";
 import {
   getHeadReconstructionEnv,
   getReplicateEnv,
+  getScanReconstructionEnv,
   isHeadReconstructionConfigured,
+  isScanReconstructionConfigured,
 } from "@/lib/env";
 
 export function getDefaultAIProvider(): AIProvider {
@@ -25,9 +27,25 @@ export function getDefaultAIProvider(): AIProvider {
     : new ReplicateHumanMeshProvider(apiToken, modelVersion);
 }
 
+/** photogrammetry scan worker — head-reconstruction과 동일한 /v1/jobs 계약을 쓴다. */
+export function getScanAIProvider(): AIProvider | null {
+  if (!isScanReconstructionConfigured()) {
+    return null;
+  }
+
+  const { apiUrl, apiKey, modelName } = getScanReconstructionEnv();
+  return new HeadReconstructionProvider(modelName, apiUrl, apiKey);
+}
+
 export function getAIProviderForJob(modelName: string): AIProvider | null {
   if (modelName === "stub-photorealistic-human-mesh") {
     return new StubHumanMeshProvider();
+  }
+
+  const scanProvider = getScanAIProvider();
+
+  if (scanProvider && scanProvider.modelName === modelName) {
+    return scanProvider;
   }
 
   const headProvider = createHeadReconstructionProvider();

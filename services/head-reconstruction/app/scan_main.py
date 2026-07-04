@@ -201,4 +201,4 @@ def download_glb(job_id: str) -> FileResponse:
 
 @app.get("/healthz")
 def healthz() -> dict:
-    return {"ok": True, "model": "photogrammetry-colmap-v1"}
+    return {"ok": True, "model": "photogrammetry-colmap-v1", "version": "0.2-spawn"}
