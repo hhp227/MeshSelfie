@@ -623,3 +623,21 @@ npm run build
   피사체의 V라인으로 변형됨을 확인. landmark 오차는 2.7→3.9e-4로 소폭 상승
   (턱·볼을 실루엣에 맞추는 대가, 텍스처는 동일 카메라 투영이라 정렬 유지).
 - 파이프라인 ~120초 CPU(stage-3 추가분 +30초). Modal 재배포·E2E 통과.
+
+### Photometric fitting 구현 (stage-4)
+
+- `photometric.py` 신규 + fitting stage-4(300 iter): 픽셀→삼각형 래스터는 주기
+  갱신(비미분), 정점→법선→SH(2차 9계수) 조명→픽셀색 경로가 미분 가능한
+  DECA류 analysis-by-synthesis. 실루엣 경계 기울기는 없지만 silhouette 손실이
+  별도로 담당.
+- 상업 안전 구성: 비상업 texture space(DECA/FLAME tex/AlbedoMM) 대신
+  **per-vertex albedo + Laplacian 스무딩** + 뷰별 SH. albedo는 정면 사진 샘플로
+  초기화, SH는 ambient로 시작.
+- FLAME face 패치(~3.5k 삼각형)만 face 대각선 220px 해상도로 렌더 → CPU 유지
+  (전체 파이프라인 ~90초, GPU 불필요 판명 — 당초 GPU 필요 예상을 수정).
+- 드리프트 방지: landmark+silhouette 손실 유지 + stage-3 결과 앵커
+  (shape/expression 편차 벌점). 카메라·포즈는 고정(텍스처 정렬 보존).
+- 실측: photometric 잔차 0.038→**0.012(-69%)**, clay 렌더에서 콧대·볼 볼륨·
+  입술 윤곽 뚜렷해짐, 심각한 왜곡 없음. landmark 오차 3.9→4.6e-4(허용 범위).
+- Modal 재배포·E2E 통과. 로드맵 잔여: ③ 귀 형상(귀 검출기), 표정 중립화 옵션,
+  albedo 텍스처 활용(현재는 fitting 장치로만 사용).
