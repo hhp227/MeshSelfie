@@ -30,8 +30,11 @@ STAGE1_ITERS = 200
 STAGE2_ITERS = 600
 CANCEL_CHECK_EVERY = 50
 
-W_SHAPE_REG = 1e-2
-W_EXPR_REG = 5e-2
+# 정규화 가중치. landmark 손실이 ~1e-4 수준이므로 이보다 한참 작아야
+# shape이 실제로 움직인다 — 1e-2로 두면 평균 두상에서 벗어나지 못해
+# "누구를 넣어도 같은 머리에 텍스처만 바뀌는" 결과가 된다(실측으로 확인).
+W_SHAPE_REG = 8e-4
+W_EXPR_REG = 4e-3
 W_NECK_REG = 1e-1
 W_JAW_REG = 1e-2
 
@@ -274,6 +277,9 @@ def build_flame_head_mesh(
     scene.metadata["views_used"] = [obs.role for obs in observations]
     scene.metadata["hair_shell"] = hair_mesh is not None
     scene.metadata["side_profile_used"] = back_profile is not None
+    # 개인화 정도 관측용: 0에 가까우면 평균 두상과 다르지 않다는 뜻
+    scene.metadata["shape_norm"] = float(shape.detach().norm())
+    scene.metadata["expression_norm"] = float(expression.detach().norm())
     return scene
 
 

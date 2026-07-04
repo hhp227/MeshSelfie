@@ -25,9 +25,12 @@ if TYPE_CHECKING:
 HAIR_FRONT_OFFSET = 0.012  # head 표면에서 앞으로 띄우는 거리 (m)
 HAIR_BACK_OFFSET = 0.012
 HAIR_MIN_THICKNESS = 0.02
-TARGET_GRID_CELLS = 56  # 마스크 bbox 장변 기준 셀 수 (low-detail)
+TARGET_GRID_CELLS = 88  # 마스크 bbox 장변 기준 셀 수 (low-detail)
 MIN_HAIR_AREA_RATIO = 0.005  # 이미지 대비 최소 머리카락 면적
 Z_SMOOTH_SIGMA_PX = 6.0  # 깊이맵 스무딩 (측면에서 본 쉘 형상을 둥글게)
+MASK_SMOOTH_SIGMA_PX = 4.0  # 마스크 경계 계단 완화
+LAPLACIAN_ITERATIONS = 4  # 쉘 정점 스무딩 반복
+LAPLACIAN_LAMBDA = 0.5
 
 
 def build_hair_shell(
@@ -43,6 +46,14 @@ def build_hair_shell(
     height, width = hair_mask.shape
 
     if hair_mask.mean() < MIN_HAIR_AREA_RATIO:
+        return None
+
+    # 마스크 경계의 픽셀 계단을 완화해 실루엣을 둥글게 만든다
+    hair_mask = (
+        ndimage.gaussian_filter(hair_mask.astype(np.float64), MASK_SMOOTH_SIGMA_PX) > 0.5
+    )
+
+    if not hair_mask.any():
         return None
 
     # --- head 깊이맵 (near/far) + 마스크 전체로 최근접 전파 ---
@@ -127,6 +138,10 @@ def build_hair_shell(
         front_faces.append([tl, br, tr])
 
     front_faces_np = np.asarray(front_faces, dtype=np.int64)
+
+    # 그리드 계단을 없애는 Laplacian 스무딩 (front/back 동일 토폴로지에 각각 적용)
+    front_verts = _laplacian_smooth(front_verts, front_faces_np)
+    back_verts = _laplacian_smooth(back_verts, front_faces_np)
     num_nodes = front_verts.shape[0]
     back_faces_np = front_faces_np[:, [0, 2, 1]] + num_nodes
 
@@ -181,6 +196,36 @@ def _boundary_edges(faces: np.ndarray) -> list[tuple[int, int]]:
                 edge_count[key] = (int(a), int(b))
 
     return list(edge_count.values())
+
+
+def _laplacian_smooth(
+    vertices: np.ndarray,
+    faces: np.ndarray,
+    iterations: int = LAPLACIAN_ITERATIONS,
+    lam: float = LAPLACIAN_LAMBDA,
+) -> np.ndarray:
+    """이웃 평균으로 정점을 끌어당기는 단순 Laplacian 스무딩 (sparse 행렬 기반)."""
+    from scipy import sparse
+
+    num_verts = vertices.shape[0]
+    edges = np.concatenate(
+        [faces[:, [0, 1]], faces[:, [1, 2]], faces[:, [2, 0]]], axis=0
+    )
+    rows = np.concatenate([edges[:, 0], edges[:, 1]])
+    cols = np.concatenate([edges[:, 1], edges[:, 0]])
+    adjacency = sparse.coo_matrix(
+        (np.ones(len(rows)), (rows, cols)), shape=(num_verts, num_verts)
+    ).tocsr()
+    adjacency.data[:] = 1.0  # 중복 edge 가중 제거
+    degree = np.asarray(adjacency.sum(axis=1)).ravel()
+    degree[degree == 0] = 1.0
+
+    smoothed = vertices.copy()
+    for _ in range(iterations):
+        neighbor_mean = adjacency @ smoothed / degree[:, None]
+        smoothed = smoothed + lam * (neighbor_mean - smoothed)
+
+    return smoothed
 
 
 def _nearest_fill(values: np.ndarray, valid: np.ndarray) -> np.ndarray:

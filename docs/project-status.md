@@ -587,3 +587,21 @@ npm run build
   front passed/side warning/angle45 passed. 블러 점수 분리도(선명 270~680 vs
   블러 1.7) 확인, 경고 임계 40.
 - 미구현 잔여(PRD 2.4): 가림/선글라스/마스크 감지 — 별도 분류기 필요.
+
+### 품질 개선: 두상 개인화 + hair 스무딩
+
+- **문제(사용자 리포트)**: head가 늘 같은 메쉬(평균 두상)에 텍스처만 바뀜, hair 계단.
+- **원인**: shape 정규화(1e-2)가 landmark 손실(~3e-4)을 압도해 shape이 0 근처에
+  묶임 — fitted bbox가 template와 수 mm 이내로 동일함을 실측으로 확인.
+- **수정**: `W_SHAPE_REG` 1e-2→8e-4, `W_EXPR_REG` 5e-2→4e-3. landmark 오차 31%
+  감소(3.4e-4→2.4e-4), clay 렌더에서 턱·볼 라인 변화 확인. `shape_norm`을
+  scene metadata로 노출해 개인화 정도 관측 가능.
+- **hair**: 마스크 gaussian 스무딩(σ=4), 그리드 56→88셀, sparse Laplacian 정점
+  스무딩(4회, λ=0.5) — clay 렌더에서 계단 제거 확인. Modal 재배포 + E2E 통과.
+- **서비스 품질까지 남은 로드맵**(landmark-only fitting의 한계):
+  1. silhouette 손실 — 정면/45도 face-skin 경계를 distance transform으로
+     fitting에 추가(턱선·볼 폭 정밀화). 두상 상부는 hair 가림 때문에 제외 필요.
+  2. photometric(텍스처/음영) 손실 — DECA류 접근을 상업 안전 구성으로 자체 구현.
+     shape 디테일(광대·코 형상)의 실질적 개선은 여기서 나옴. GPU 필요.
+  3. 귀 landmark — MediaPipe embedding 105점에는 귀가 없어 귀 형상은 사전 분포
+     의존. 귀 검출기 추가 검토.
