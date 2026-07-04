@@ -22,6 +22,8 @@ class Config:
     data_dir: Path = Path(os.environ.get("HEAD_RECON_DATA_DIR", "./data")).resolve()
     max_workers: int = int(os.environ.get("HEAD_RECON_MAX_WORKERS", "1"))
     model_name: str = os.environ.get("HEAD_RECON_MODEL_NAME", "hybrid-flame-head-v1")
+    # 헤어 방식: preset(두상 적응 프리셋, 기본) | shell(사진 실루엣 쉘) | none
+    hair_mode: str = os.environ.get("HEAD_RECON_HAIR_MODE", "preset").lower()
     # 입력 이미지 다운로드 제한
     download_timeout_seconds: int = 30
     max_input_bytes: int = 10 * 1024 * 1024

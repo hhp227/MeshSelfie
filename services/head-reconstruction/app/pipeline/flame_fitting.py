@@ -23,6 +23,7 @@ from scipy import ndimage
 from app.config import config
 from app.jobs import JobCanceled, PipelineError
 from app.pipeline.flame_model import FlameModel, NUM_EXPR, NUM_SHAPE, _load_flame_pickle
+from app.pipeline.hair_preset import build_hair_preset, classify_hair_style
 from app.pipeline.hair_shell import build_hair_shell
 from app.pipeline.landmarks import detect_face_landmarks
 from app.pipeline.segmentation import (
@@ -585,17 +586,41 @@ def build_flame_head_mesh(
                 }
             )
 
-        # 90° 측면 사진이 fitting에 못 들어갔어도 silhouette로 후두부 hair 두께를 추정
-        back_profile = None
-        side_path = view_paths.get("side")
-        if side_path is not None and "side" not in [obs.role for obs in observations]:
-            back_profile = _analyze_side_profile(
-                side_path, model, shape, expression, neck_pose, jaw_pose
-            )
-
-        # 정면 뷰 기준 hair shell → global rotation 제거(neutral) 공간으로 변환
         hair_mesh = None
-        if hair_mask is not None:
+        hair_style: Optional[str] = None
+        back_profile = None
+
+        if config.hair_mode == "preset" and hair_mask is not None:
+            # 프리셋: fitted 두상(neutral 공간)에 맞춘 절차 생성 헤어.
+            # 사진의 hair mask는 스타일 분류와 색 추출에만 사용한다.
+            if config.flame_masks_path.exists() and hair_color is not None:
+                front_field = next(
+                    (
+                        field
+                        for view_index, field in silhouette_fields
+                        if observations[view_index].role == "front"
+                    ),
+                    None,
+                )
+                face_mask_np = front_field.face_mask if front_field is not None else None
+                style, bangs_flag = classify_hair_style(hair_mask, face_mask_np)
+                hair_mesh = build_hair_preset(
+                    head_verts=neutral_verts,
+                    flame_masks=_load_flame_pickle(config.flame_masks_path),
+                    style=style,
+                    bangs=bangs_flag,
+                    hair_color=hair_color,
+                )
+                hair_style = style
+        elif config.hair_mode == "shell" and hair_mask is not None:
+            # 90° 측면 사진이 fitting에 못 들어갔어도 silhouette로 후두부 두께 추정
+            side_path = view_paths.get("side")
+            if side_path is not None and "side" not in [obs.role for obs in observations]:
+                back_profile = _analyze_side_profile(
+                    side_path, model, shape, expression, neck_pose, jaw_pose
+                )
+
+            # 정면 뷰 기준 hair shell → global rotation 제거(neutral) 공간으로 변환
             hair_mesh = build_hair_shell(
                 image=front_obs.image,
                 hair_mask=hair_mask,
@@ -607,13 +632,13 @@ def build_flame_head_mesh(
                 back_profile=back_profile,
             )
 
-        if hair_mesh is not None:
-            from app.pipeline.flame_model import _batch_rodrigues
+            if hair_mesh is not None:
+                from app.pipeline.flame_model import _batch_rodrigues
 
-            rot = _batch_rodrigues(global_rots[0].unsqueeze(0))[0].numpy()  # (3,3)
-            root_joint = model.joints(shape, expression)[0].numpy()
-            # v_posed = R (x - j0) + j0  →  x = Rᵀ (v_posed - j0) + j0
-            hair_mesh.vertices = (hair_mesh.vertices - root_joint) @ rot + root_joint
+                rot = _batch_rodrigues(global_rots[0].unsqueeze(0))[0].numpy()  # (3,3)
+                root_joint = model.joints(shape, expression)[0].numpy()
+                # v_posed = R (x - j0) + j0  →  x = Rᵀ (v_posed - j0) + j0
+                hair_mesh.vertices = (hair_mesh.vertices - root_joint) @ rot + root_joint
 
     scalp_faces = _scalp_face_mask(model)
     texture = bake_multiview_texture(
@@ -643,6 +668,8 @@ def build_flame_head_mesh(
     scene.metadata["flame_landmark_loss"] = final_lmk_loss
     scene.metadata["views_used"] = [obs.role for obs in observations]
     scene.metadata["hair_shell"] = hair_mesh is not None
+    scene.metadata["hair_mode"] = config.hair_mode
+    scene.metadata["hair_style"] = hair_style
     scene.metadata["side_profile_used"] = back_profile is not None
     # 개인화 정도 관측용: 0에 가까우면 평균 두상과 다르지 않다는 뜻
     scene.metadata["shape_norm"] = float(shape.detach().norm())
