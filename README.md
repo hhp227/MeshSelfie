@@ -69,6 +69,68 @@ Supabase는 새 API key 형식을 권장합니다.
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | `sb_publishable_...` |
 | `SUPABASE_SERVICE_ROLE_KEY` | `sb_secret_...` |
 
+## 백업과 재클론 복원
+
+Git에 포함되지 않는 로컬 파일이 있어, 프로젝트를 삭제하고 다시 clone해도
+아래 백업만 있으면 전체 환경을 복원할 수 있습니다. 클라우드 리소스
+(Vercel 프로젝트, Modal 앱, Supabase)는 로컬과 무관하게 유지되므로
+로컬을 지워도 프로덕션은 계속 동작합니다.
+
+### 백업 대상
+
+| 대상 | 내용 | 분실 시 대안 |
+| --- | --- | --- |
+| `.env.local` | Supabase/Replicate/worker API 키 전부 | 각 대시보드에서 재발급 |
+| `services/head-reconstruction/models/flame/` | FLAME 2023 Open 등 3개 파일 (라이선스상 repo 제외) | <https://flame.is.tue.mpg.de> 재다운로드 |
+| `image/` | 로컬 테스트 사진 | 대체 가능 |
+| `~/.modal.toml` | Modal CLI 인증 토큰 | `modal token new` 재발급 |
+| Vercel CLI 인증 (`~/.local/share/com.vercel.cli/`) | CLI 로그인 상태 | `npx vercel login` 재로그인 |
+
+백업 한 줄 명령 (프로젝트 루트에서 실행):
+
+```bash
+tar czf ~/meshselfie-backup-$(date +%Y%m%d).tar.gz \
+  .env.local image services/head-reconstruction/models/flame \
+  -C "$HOME" .modal.toml
+```
+
+### 재클론 후 복원 절차
+
+```bash
+# 1) clone + 앱 의존성
+git clone https://github.com/hhp227/MeshSelfie.git
+cd MeshSelfie
+npm install
+
+# 2) 백업 복원 (.env.local, image/, models/flame, ~/.modal.toml)
+tar xzf ~/meshselfie-backup-YYYYMMDD.tar.gz
+mv .modal.toml ~/   # tar를 프로젝트 루트에서 풀었을 경우
+
+# 3) 앱 실행 — 여기까지만 하면 개발 서버가 동작한다
+npm run dev
+
+# 4) (선택) worker 로컬 개발 환경 — Modal 배포본만 쓸 거면 생략 가능
+curl -LsSf https://astral.sh/uv/install.sh | sh
+uv venv ~/.venvs/meshselfie-hr --python 3.12
+VIRTUAL_ENV=~/.venvs/meshselfie-hr uv pip install \
+  -r services/head-reconstruction/requirements.txt
+# face_landmarker 등 나머지 모델 파일은 최초 실행 시 자동 다운로드된다
+
+# 5) (선택) 배포 CLI 재연결 — 재배포가 필요할 때만
+npx vercel login && npx vercel link --yes --project meshselfie
+# Modal은 ~/.modal.toml 복원만으로 인증됨. worker 재배포:
+#   cd services/head-reconstruction && modal deploy modal_app.py
+```
+
+주의:
+
+- `npx vercel link`가 멀티서비스 `vercel.json`을 다시 생성하려 할 수 있다.
+  repo의 `vercel.json`(`{"framework": "nextjs"}`)을 덮어쓰지 않도록 확인한다.
+- `.env.local`을 잃어버린 경우: Supabase 키는 프로젝트 대시보드, Replicate
+  토큰은 replicate.com, `HEAD_RECONSTRUCTION_API_KEY`는 Modal secret
+  (`modal secret create meshselfie-head-recon HEAD_RECON_API_KEY=...`)을
+  새로 만들어 양쪽에 동일한 값을 설정한다.
+
 ## Supabase 설정
 
 새 프로젝트 또는 새 환경에서 실행할 경우 먼저 SQL migration을 실행합니다.
