@@ -25,6 +25,7 @@ export type ProviderJobResult = {
 export type ProviderJobStatus = {
   status: "queued" | "generating" | "completed" | "failed" | "canceled";
   outputUrl?: string;
+  thumbnailUrl?: string;
   errorCode?: string;
   errorMessage?: string;
   raw: unknown;

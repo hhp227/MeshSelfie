@@ -1,5 +1,6 @@
 import type { AIProvider } from "@/lib/ai/interface";
 import { HeadReconstructionProvider } from "@/lib/ai/providers/head-reconstruction";
+import { HunyuanMultiViewProvider } from "@/lib/ai/providers/hunyuan3d";
 import { ReplicateHumanMeshProvider } from "@/lib/ai/providers/replicate";
 import { StubHumanMeshProvider } from "@/lib/ai/providers/stub";
 import {
@@ -13,10 +14,15 @@ export function getDefaultAIProvider(): AIProvider {
     return createHeadReconstructionProvider();
   }
 
-  const { apiToken, modelVersion } = getReplicateEnv();
-  return apiToken
-    ? new ReplicateHumanMeshProvider(apiToken, modelVersion)
-    : new StubHumanMeshProvider();
+  const { apiToken, modelFamily, modelVersion, hunyuanModelVersion } = getReplicateEnv();
+
+  if (!apiToken) {
+    return new StubHumanMeshProvider();
+  }
+
+  return modelFamily === "hunyuan3d"
+    ? new HunyuanMultiViewProvider(apiToken, hunyuanModelVersion)
+    : new ReplicateHumanMeshProvider(apiToken, modelVersion);
 }
 
 export function getAIProviderForJob(modelName: string): AIProvider | null {
@@ -30,10 +36,14 @@ export function getAIProviderForJob(modelName: string): AIProvider | null {
     return headProvider;
   }
 
-  const { apiToken, modelVersion } = getReplicateEnv();
+  const { apiToken, modelVersion, hunyuanModelVersion } = getReplicateEnv();
 
   if (apiToken && modelName === "firtoz/trellis") {
     return new ReplicateHumanMeshProvider(apiToken, modelVersion);
+  }
+
+  if (apiToken && modelName === "tencent/hunyuan3d-2mv") {
+    return new HunyuanMultiViewProvider(apiToken, hunyuanModelVersion);
   }
 
   return null;

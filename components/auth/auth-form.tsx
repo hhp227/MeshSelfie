@@ -67,7 +67,7 @@ export function AuthForm({ mode }: { mode: AuthMode }) {
 
     const nextPath = searchParams.get("next");
 
-    router.replace(nextPath?.startsWith("/") ? nextPath : "/dashboard");
+    router.replace(nextPath?.startsWith("/") ? nextPath : "/");
     router.refresh();
   }
 

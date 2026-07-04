@@ -1,10 +1,11 @@
-# MeshSelfie PRD v1.1
+# MeshSelfie PRD v1.2
 
 | 항목 | 내용 |
 | --- | --- |
-| 문서 버전 | v1.1 |
+| 문서 버전 | v1.2 |
 | 업데이트 범위 | AI Provider 추상화, 입력 이미지 정책, 이미지 품질 검증, 썸네일, 데이터 보관, 생성 파이프라인, Gallery, 관리자/비용 설계 보완 |
-| 원칙 | 기존 기능은 유지하고 추가/수정 방식으로 확장한다. |
+| v1.2 변경 사항 | 실제 구현과 어긋난 부분(Provider Registry 동작 방식, `AIProvider` 인터페이스, Storage 이미지 경로, 결과 페이지 라우트, 목록 API 이름, 미구현 검증/한도 항목)에 "구현 현황/미구현" 표기를 추가하고, 13장 로드맵에 현재 최우선 작업인 Phase 3.5(Hybrid Head Reconstruction Worker)를 반영했다. 자세한 실제 상태는 `docs/project-status.md`를 함께 참고한다. |
+| 원칙 | 기존 기능은 유지하고 추가/수정 방식으로 확장한다. PRD는 목표 설계이고, 실제 동작과 다른 부분은 명시적으로 "미구현/구현 현황"으로 표기해 문서와 코드가 서로 다른 사실을 주장하지 않게 한다. |
 
 ## 1. 서비스 개요
 
@@ -123,9 +124,11 @@ MVP 품질 구현은 얼굴·귀·턱·목을 우선 고정밀 복원하고 머�
 | MVP 판단 | 다만 사용자의 업로드 부담과 입력 슬롯 단순화를 위해 MVP에서는 45도 사진 1장만 선택 입력으로 둔다. |
 | 향후 확장 | 품질 개선 단계에서 `left45`와 `right45`를 별도 슬롯으로 확장할 수 있다. |
 
-### 2.4 이미지 품질 검증
+### 2.4 이미지 품질 검증 (Vision 기반 항목은 미구현)
 
 업로드 직후 자동 검증을 수행한다. 검증은 사용자 경험을 막는 hard fail과 품질 개선을 권장하는 warning으로 나눈다.
+
+> **구현 현황**: 현재 `POST /api/uploads/images`는 MIME type/확장자/파일 크기(10MB)와 실제 픽셀 해상도(512px 미만 hard fail, 1024px 미만 warning)만 검증한다. 아래 표의 얼굴 존재·크기·다중 인물·흐림·가림·선글라스·마스크 검증은 Vision 로직이 아직 없어 전부 `validation_status: "pending"` + 고정 안내 문구("얼굴 검출·가림·흐림 자동 검증은 후속 Vision 단계에서 추가됩니다")로 대체되어 있다.
 
 | 검증 항목 | 정책 | 실패/경고 메시지 예시 |
 | --- | --- | --- |
@@ -150,7 +153,8 @@ MVP 품질 구현은 얼굴·귀·턱·목을 우선 고정밀 복원하고 머�
 | 실사성 유지 | 원본 인물의 얼굴 구조, 비율, 텍스처를 최대한 유지하는 모델과 프롬프트/파라미터를 사용한다. |
 | 스타일 제한 | 게임 캐릭터, VRM, 만화풍, 판타지, 과도한 미화 스타일은 생성 옵션에서 제외한다. |
 | 실패 처리 | 실패 사유, provider 에러 코드, 재시도 가능 여부를 저장한다. |
-| 중복 방지 | 동일 사용자의 같은 사진 조합에 대해 진행 중인 생성 요청이 있으면 새 요청을 차단한다. |
+| 중복 방지 (미구현) | 동일 사용자의 같은 사진 조합에 대해 진행 중인 생성 요청이 있으면 새 요청을 차단한다. 현재 `POST /api/generate`는 이 검사 없이 매 요청마다 새 `human_meshes`/`generation_jobs`를 생성하고 크레딧을 차감한다. |
+| 일일 한도 (미구현) | `profiles.mesh_quota_daily`로 일일 생성 횟수를 제한한다. 현재는 `remaining_credits <= 0`(크레딧 소진) 여부만 확인하고 일일 한도 자체는 검사하지 않는다. |
 | 생성 방식 | 결과 모델의 `model_source`는 AI 생성 시 `ai_generated`로 저장한다. |
 
 ### 2.6 생성 품질 요구사항
@@ -504,21 +508,24 @@ Supabase Storage는 private bucket 중심으로 운영한다. 클라이언트가
 
 ### 5.2 Object Path
 
+> 이미지 업로드(`POST /api/uploads/images`)는 `human_mesh_id`가 생성되기 전에 일어나므로, 정면/측면/45도 이미지는 `human_mesh_id`가 아니라 업로드 요청 단위 `upload_group_id`로 묶인다. 실제 경로는 `docs/storage-structure.md`와 `lib/uploads.ts`/`app/api/uploads/images/route.ts`를 기준으로 한다.
+
 논리 구조:
 
 ```text
-storage/
+avatars/
 ├── images/
 │   └── {user_id}/
-│       └── {human_mesh_id}/
-│           ├── front.jpg
-│           ├── side.jpg
-│           └── angle45.jpg
+│       └── uploads/
+│           └── {upload_group_id}/
+│               ├── front.{jpg|jpeg|png}
+│               ├── side.{jpg|jpeg|png}
+│               └── angle45.{jpg|jpeg|png}
 ├── models/
 │   └── {user_id}/
 │       └── {human_mesh_id}/
 │           ├── mesh.glb
-│           └── admin_uploaded.glb
+│           └── admin_uploaded.{glb|gltf}
 ├── thumbnails/
 │   └── {user_id}/
 │       └── {human_mesh_id}/
@@ -527,22 +534,21 @@ storage/
 └── admin/
     └── sample_models/
         └── {sample_id}/
-            ├── mesh.glb
+            ├── mesh.{glb|gltf}
             └── thumbnail.jpg
 ```
 
 | 파일 유형 | 경로 |
 | --- | --- |
-| 정면 이미지 | `images/{user_id}/{human_mesh_id}/front.{ext}` |
-| 측면 이미지 | `images/{user_id}/{human_mesh_id}/side.{ext}` |
-| 45도 이미지 | `images/{user_id}/{human_mesh_id}/angle45.{ext}` |
+| 정면 이미지 | `images/{user_id}/uploads/{upload_group_id}/front.{ext}` |
+| 측면 이미지 | `images/{user_id}/uploads/{upload_group_id}/side.{ext}` |
+| 45도 이미지 | `images/{user_id}/uploads/{upload_group_id}/angle45.{ext}` |
 | AI 생성 모델 | `models/{user_id}/{human_mesh_id}/mesh.glb` |
 | 관리자 업로드 모델 | `models/{user_id}/{human_mesh_id}/admin_uploaded.{glb|gltf}` |
-| 썸네일 | `thumbnails/{user_id}/{human_mesh_id}/thumbnail.jpg` |
-| Preview Render | `thumbnails/{user_id}/{human_mesh_id}/preview.jpg` |
-| 관리자 샘플 모델 | `admin/sample_models/{sample_id}/mesh.{glb|gltf}` |
-| 관리자 샘플 썸네일 | `admin/sample_models/{sample_id}/thumbnail.jpg` |
-| provider 임시 결과 | `jobs/{user_id}/{generation_job_id}/raw/{filename}` |
+| 썸네일 | `thumbnails/{user_id}/{human_mesh_id}/thumbnail.jpg` (미구현) |
+| Preview Render | `thumbnails/{user_id}/{human_mesh_id}/preview.jpg` (미구현) |
+| 관리자 샘플 모델 | `admin/sample_models/{sample_id}/mesh.{glb|gltf}` (미구현) |
+| 관리자 샘플 썸네일 | `admin/sample_models/{sample_id}/thumbnail.jpg` (미구현) |
 
 ### 5.3 파일 접근 정책
 
@@ -558,7 +564,9 @@ storage/
 
 ## 6. AI 아키텍처
 
-MeshSelfie는 특정 AI 서비스에 종속되지 않도록 AI Provider Interface와 Provider Registry를 둔다. 비즈니스 로직은 `AIProvider` 인터페이스만 호출하고, 실제 Replicate, TRELLIS, Hunyuan3D, TripoSR, 자체 모델 연동은 provider adapter가 담당한다.
+MeshSelfie는 특정 AI 서비스에 종속되지 않도록 AI Provider Interface와 Provider Registry를 둔다. 비즈니스 로직은 `AIProvider` 인터페이스만 호출하고, 실제 Replicate(TRELLIS 모델 실행 gateway), Hybrid Head Worker(자체 GPU worker), Hunyuan3D, TripoSR 연동은 provider adapter가 담당한다.
+
+> **구현 현황(2026-06-21 기준)**: 6.3의 DB(`ai_provider_versions`) 기반 동적 선택과 6.2의 `normalizeOutput`은 아직 구현되지 않았다. 현재 `lib/ai/registry.ts`는 환경 변수 존재 여부만으로 `self_hosted → replicate → stub` 순서로 정적 선택하며, GLB 다운로드·검증·Storage 저장은 provider와 무관하게 `lib/generation/finalize.ts`가 공통으로 처리한다. 아래 6.2~6.5는 목표 아키텍처이며, 실제 동작은 `docs/project-status.md`를 기준으로 한다.
 
 ### 6.1 AI Provider Architecture
 
@@ -576,14 +584,16 @@ MeshSelfie는 특정 AI 서비스에 종속되지 않도록 AI Provider Interfac
 ```ts
 interface AIProvider {
   key: 'replicate' | 'trellis' | 'hunyuan3d' | 'triposr' | 'self_hosted'
+  modelName: string
   supports(input: GenerationInput): Promise<boolean>
-  estimate(input: GenerationInput): Promise<GenerationEstimate>
-  createJob(input: GenerationInput): Promise<ProviderJob>
+  estimate(input: GenerationInput): Promise<{ estimatedCost: number | null; estimatedSeconds: number | null }>
+  createJob(input: GenerationInput): Promise<ProviderJobResult>
   getJob(providerJobId: string): Promise<ProviderJobStatus>
   cancelJob(providerJobId: string): Promise<void>
-  normalizeOutput(output: ProviderJobStatus): Promise<NormalizedMeshOutput>
 }
 ```
+
+`lib/ai/interface.ts`의 실제 계약과 동일하다. 최초 설계에 있던 `normalizeOutput`은 채택하지 않았다 — GLB 다운로드, 50MB 상한, GLB v2 헤더 검증, 신뢰 host 검사는 provider별 차이가 없는 공통 로직이라 `lib/generation/finalize.ts`에 단일 구현으로 두고, provider adapter는 `ProviderJobStatus.outputUrl`(원본 GLB URL)만 반환하면 되도록 책임을 좁혔다.
 
 공통 입력 구조:
 
@@ -601,7 +611,15 @@ interface AIProvider {
 
 ### 6.3 Provider Registry 구조
 
-Provider Registry는 DB의 `ai_provider_versions`와 서버 설정을 조합해 활성 Provider를 선택한다.
+**현재 구현**: `lib/ai/registry.ts`는 DB를 조회하지 않고, 서버 환경 변수 존재 여부만으로 고정 순서 정적 선택한다.
+
+| 순서 | 조건 | 선택되는 Provider |
+| --- | --- | --- |
+| 1 | `HEAD_RECONSTRUCTION_API_URL` + `HEAD_RECONSTRUCTION_API_KEY` 설정됨 | `self_hosted` (Hybrid Head Worker) — 설정되면 항상 최우선 |
+| 2 | 1이 아니고 `REPLICATE_API_TOKEN` 설정됨 | `replicate` (`firtoz/trellis` 고정 버전 호출) |
+| 3 | 둘 다 없음 | `stub` (로컬 개발용, 실제 3D 생성 없이 상태만 흉내) |
+
+**목표 아키텍처(미구현)**: 아래 표는 DB `ai_provider_versions`의 `priority`, `supports_multi_view`, `max_input_images`, `success_rate_rolling`, `estimated_cost_per_job`을 조합해 후보를 동적으로 좁히고 실패율/비용 기준으로 자동 제외하는 설계다. 현재는 `ai_provider_versions` 테이블이 마이그레이션에는 존재하지만 앱 코드가 이를 읽지 않으므로, 실질적으로는 죽은 스키마다. 이 표에 있는 정책을 실제로 쓰려면 registry를 다시 구현해야 한다.
 
 | 항목 | 정책 |
 | --- | --- |
@@ -611,18 +629,19 @@ Provider Registry는 DB의 `ai_provider_versions`와 서버 설정을 조합해 
 | 안정성 | `success_rate_rolling`이 운영 기준 미만이면 자동 후보 제외 가능하다. |
 | 버전 고정 | 생성 job에는 `provider_version_id`, `model_name`, `model_version`을 저장해 재현성을 확보한다. |
 
-지원 예정 Provider:
+Provider 현황:
 
-| Provider | 용도 |
-| --- | --- |
-| Replicate | 외부 모델 실행 gateway |
-| Hybrid Head Worker | FLAME 계열 multi-view fitting, 피부 UV 합성, low-detail hair shell을 담당하는 기본 후보 |
-| TRELLIS | 범용 3D asset fallback 및 품질 비교 |
-| Hunyuan3D | 실사형 mesh 생성 후보 |
-| TripoSR | 빠른 reconstruction 후보 |
-| 자체 모델 | 비용/품질 최적화 후 장기 도입 |
+| Provider | 상태 | 용도 |
+| --- | --- | --- |
+| Hybrid Head Worker (`self_hosted`) | 기본 목표 Provider, worker 자체는 미구현 | FLAME 계열 multi-view fitting, 피부 UV 합성, low-detail hair shell로 얼굴 동일성 확보 |
+| Replicate 경유 TRELLIS (`replicate`/`trellis`) | 구현/연동 완료 | 범용 3D asset 생성. E2E 검증과 품질 비교 기준선(baseline)으로만 사용하며, 얼굴 identity 재현 품질의 기준으로 삼지 않는다 |
+| Hunyuan3D | 미구현 | 실사형 mesh 생성 후보 |
+| TripoSR | 미구현 | 빠른 reconstruction 후보 |
+| 자체 모델 | 미구현 | 비용/품질 최적화 후 장기 도입 |
 
-### 6.4 Failover 전략
+### 6.4 Failover 전략 (미구현)
+
+현재 코드는 provider 호출이 실패하면 재시도나 fallback 없이 job/mesh를 즉시 `failed`로 마킹하고 provider 에러 종류에 따른 안내 메시지만 반환한다(`app/api/generate/route.ts::describeProviderFailure`). 아래는 목표 정책이다.
 
 | 상황 | 전략 |
 | --- | --- |
@@ -634,7 +653,9 @@ Provider Registry는 DB의 `ai_provider_versions`와 서버 설정을 조합해 
 
 Failover로 생성된 job은 `generation_jobs.failover_from_job_id`와 `attempt_no`로 연결한다.
 
-### 6.5 AI 버전 관리 전략
+### 6.5 AI 버전 관리 전략 (미구현)
+
+`generation_jobs.provider_version_id`, `ai_provider_versions` 자체는 스키마에 존재하지만 현재 어떤 코드 경로도 값을 쓰거나 읽지 않는다. 아래는 목표 정책이다.
 
 | 항목 | 정책 |
 | --- | --- |
@@ -854,9 +875,11 @@ AI provider 입력 구조:
 | createdAt | string | 생성일 |
 | updatedAt | string | 수정일 |
 
-### 8.6 `GET /api/meshes`
+### 8.6 `GET /api/meshes` (실제 구현은 `GET /api/avatars`)
 
 현재 사용자의 실사형 3D 모델 목록을 조회한다.
+
+> 현재 코드는 이 목록 엔드포인트를 `GET /api/avatars`로 구현했고 페이지네이션(`limit`/`cursor`) 없이 전체를 `created_at desc`로 반환한다. `/api/meshes`로의 개명과 커서 페이지네이션 도입은 미구현 상태다.
 
 Query:
 
@@ -1198,9 +1221,9 @@ Query:
 | 배경 | 얼굴 경계가 잘 보이는 단순한 배경 |
 | 품질 | 흔들림과 심한 필터가 없는 원본에 가까운 사진 |
 
-생성 요청 성공 시 `/meshes/{meshId}`로 이동한다.
+생성 요청 성공 시 `/meshes/{meshId}`로 이동한다. (실제 구현 라우트: `/result/{meshId}`. 라우트명 통일은 12장 폴더 구조 개편과 함께 처리한다.)
 
-### 11.6 Result Page `/meshes/{meshId}`
+### 11.6 Result Page `/meshes/{meshId}` (실제 구현: `/result/{meshId}`)
 
 목적: 생성 상태와 결과 실사형 3D Human Mesh를 확인한다.
 
@@ -1389,6 +1412,8 @@ Query:
 
 ## 13. 개발 로드맵
 
+> **진행 현황(2026-06-21 기준)**: Phase 1~3은 기능 대부분이 구현·검증됐고(Replicate/TRELLIS 기준 E2E 성공), Phase 4는 관리자 업로드만 구현됐다. 이후 얼굴 동일성 품질이 기준에 미달한다고 판단해 **Phase 3.5(Hybrid Head Reconstruction Worker)를 현재 최우선 작업으로 삽입**했다. Phase 4의 나머지 항목과 Phase 5는 Phase 3.5 완료 후 재개한다. 상세 근거는 `docs/project-status.md` 12절, 상세 설계는 `docs/hybrid-head-reconstruction.md`를 참고한다.
+
 ### Phase 1: 프로젝트 기반과 인증
 
 목표: 로그인 사용자가 보호 화면에 접근할 수 있는 기반을 만든다.
@@ -1465,6 +1490,32 @@ Query:
 | 썸네일 | Dashboard/Gallery/Admin에서 사용할 thumbnail이 생성된다. |
 | 뷰어 | 브라우저에서 회전/확대/축소가 가능하다. |
 | 다운로드 | 소유자만 GLB 다운로드가 가능하다. |
+
+### Phase 3.5: Hybrid Head Reconstruction Worker (현재 최우선)
+
+목표: 범용 image-to-3D(TRELLIS) 대비 얼굴·귀·턱·목 동일성이 명확히 개선된 결과를 `self_hosted` Provider로 제공한다. 배경은 1장(제품 개요)과 `docs/hybrid-head-reconstruction.md`를 참고한다.
+
+작업:
+
+| 순서 | 작업 |
+| --- | --- |
+| 1 | 상업 사용 가능한 FLAME 2023 Open 호환 landmark/segmentation/face-parameter fitting 구성요소 라이선스 확정 (DECA 공개 가중치는 비상업 라이선스라 제외) |
+| 2 | `services/head-reconstruction/` Python GPU worker 프로젝트 생성 |
+| 3 | 정면 1장 → textured face·head·neck GLB를 반환하는 최소 worker 구현 |
+| 4 | worker API에 `POST /v1/jobs`, `GET /v1/jobs/{id}`, `POST /v1/jobs/{id}/cancel` 계약 구현 (Next.js 쪽 adapter는 `lib/ai/providers/head-reconstruction.ts`에 이미 구현됨) |
+| 5 | 정면·45도·측면 shared-identity multi-view fitting 확장 |
+| 6 | 2K~4K multi-view UV texture 합성과 low-detail hair shell 결합 |
+| 7 | Modal/RunPod Serverless 등 비동기 GPU 배포 환경 선정 (특정 플랫폼 SDK에 조기 종속되지 않도록 확정 전까지 추상화 유지) |
+| 8 | `HEAD_RECONSTRUCTION_*` 환경 변수로 배포된 worker 연결, TRELLIS 대비 얼굴 유사도·silhouette·texture 품질 비교 |
+
+완료 기준:
+
+| 기준 | 설명 |
+| --- | --- |
+| 얼굴 동일성 | 정면·45도·측면 입력 기준 얼굴·귀·턱·목의 동일성이 TRELLIS 결과보다 명확히 개선된다. |
+| Hair shell | 저해상도 hair shell이 얼굴 geometry를 침범하지 않는다. |
+| 저장 | 생성된 GLB가 기존 파이프라인(`lib/generation/finalize.ts`)을 통해 Supabase Storage에 저장된다. |
+| Provider 우선순위 | `HEAD_RECONSTRUCTION_*` 환경 변수 설정 시 `self_hosted` Provider가 Replicate/TRELLIS보다 우선 선택된다(이미 구현됨). |
 
 ### Phase 4: 관리자 기능
 

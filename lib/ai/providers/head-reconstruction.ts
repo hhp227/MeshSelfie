@@ -9,6 +9,7 @@ type WorkerJob = {
   status?: string;
   output?: {
     glbUrl?: string;
+    thumbnailUrl?: string;
   } | null;
   error?: {
     code?: string;
@@ -83,6 +84,7 @@ export class HeadReconstructionProvider implements AIProvider {
     return {
       status: normalizeStatus(job.status),
       outputUrl: job.output?.glbUrl,
+      thumbnailUrl: job.output?.thumbnailUrl,
       errorCode: job.error?.code,
       errorMessage: job.error?.message,
       raw: job,

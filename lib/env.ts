@@ -22,12 +22,20 @@ export function isSupabaseAdminConfigured() {
   return Boolean(supabaseUrl && supabaseServiceRoleKey);
 }
 
+export type ReplicateModelFamily = "trellis" | "hunyuan3d";
+
 export function getReplicateEnv() {
+  const rawFamily = (process.env.REPLICATE_MODEL_FAMILY ?? "trellis").trim().toLowerCase();
+
   return {
     apiToken: process.env.REPLICATE_API_TOKEN ?? "",
+    modelFamily: (rawFamily === "hunyuan3d" ? "hunyuan3d" : "trellis") as ReplicateModelFamily,
     modelVersion:
       process.env.REPLICATE_MODEL_VERSION ??
       "e8f6c45206993f297372f5436b90350817bd9b4a0d52d2a76df50c1c8afa2b3c",
+    hunyuanModelVersion:
+      process.env.HUNYUAN3D_MODEL_VERSION ??
+      "71798fbc3c9f7b7097e3bb85496e5a797d8b8f616b550692e7c3e176a8e9e5db",
   };
 }
 

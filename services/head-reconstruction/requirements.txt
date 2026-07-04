@@ -1,0 +1,15 @@
+# CPU 전용 torch 인덱스 (linux 기본 인덱스는 CUDA 포함으로 수 GB).
+# GPU 배포 시 이 줄을 제거하고 CUDA 버전 torch를 설치한다.
+--extra-index-url https://download.pytorch.org/whl/cpu
+
+fastapi>=0.115
+uvicorn[standard]>=0.30
+pydantic>=2.7
+requests>=2.32
+numpy>=1.26
+scipy>=1.13
+pillow>=10.3
+trimesh>=4.4
+mediapipe>=0.10.14
+torch>=2.4
+xatlas>=0.0.9

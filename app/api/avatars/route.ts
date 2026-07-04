@@ -8,11 +8,13 @@ type HumanMeshListRow = {
   input_image_count: number;
   quality_grade: string;
   model_source: string;
-  thumbnail_url: string | null;
+  thumbnail_object_path: string | null;
   model_object_path: string | null;
   created_at: string;
   completed_at: string | null;
 };
+
+const THUMBNAIL_URL_TTL_SECONDS = 60 * 5;
 
 export async function GET(request: Request) {
   const supabase = createSupabaseAdminClient();
@@ -50,7 +52,7 @@ export async function GET(request: Request) {
         "input_image_count",
         "quality_grade",
         "model_source",
-        "thumbnail_url",
+        "thumbnail_object_path",
         "model_object_path",
         "created_at",
         "completed_at",
@@ -66,6 +68,24 @@ export async function GET(request: Request) {
 
   const meshes = data as unknown as HumanMeshListRow[];
 
+  // 썸네일 signed URL 배치 발급 (실패해도 목록은 반환)
+  const thumbnailPaths = meshes
+    .map((mesh) => mesh.thumbnail_object_path)
+    .filter((path): path is string => Boolean(path));
+  const signedThumbnails = new Map<string, string>();
+
+  if (thumbnailPaths.length > 0) {
+    const { data: signed } = await supabase.storage
+      .from("avatars")
+      .createSignedUrls(thumbnailPaths, THUMBNAIL_URL_TTL_SECONDS);
+
+    for (const entry of signed ?? []) {
+      if (entry.path && entry.signedUrl) {
+        signedThumbnails.set(entry.path, entry.signedUrl);
+      }
+    }
+  }
+
   return Response.json({
     data: meshes.map((mesh) => ({
       id: mesh.id,
@@ -74,7 +94,9 @@ export async function GET(request: Request) {
       inputImageCount: mesh.input_image_count,
       qualityGrade: mesh.quality_grade,
       modelSource: mesh.model_source,
-      thumbnailUrl: mesh.thumbnail_url,
+      thumbnailUrl: mesh.thumbnail_object_path
+        ? signedThumbnails.get(mesh.thumbnail_object_path) ?? null
+        : null,
       modelObjectPath: mesh.model_object_path,
       createdAt: mesh.created_at,
       completedAt: mesh.completed_at,

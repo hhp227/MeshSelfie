@@ -14,6 +14,7 @@ type SourceImageRow = {
   image_role: "front" | "side" | "angle45";
   image_direction: ImageDirection | null;
   status: string;
+  validation_status: string;
   soft_deleted_at: string | null;
 };
 
@@ -65,7 +66,9 @@ export async function POST(request: Request) {
 
   const { data, error } = await supabase
     .from("source_images")
-    .select("id,user_id,object_path,image_role,image_direction,status,soft_deleted_at")
+    .select(
+      "id,user_id,object_path,image_role,image_direction,status,validation_status,soft_deleted_at",
+    )
     .eq("user_id", user.id)
     .in("id", requestedIds);
 
@@ -89,6 +92,14 @@ export async function POST(request: Request) {
 
   if (!front || front.image_role !== "front") {
     return jsonError("INVALID_FRONT_IMAGE", "front 역할의 이미지를 선택해주세요.", 400);
+  }
+
+  if (sourceImages.some((image) => image.validation_status === "failed")) {
+    return jsonError(
+      "IMAGE_VALIDATION_FAILED",
+      "품질 검증에 실패한 이미지는 사용할 수 없습니다. 사진을 다시 업로드해주세요.",
+      400,
+    );
   }
 
   if (side && (side.image_role !== "side" || !side.image_direction)) {

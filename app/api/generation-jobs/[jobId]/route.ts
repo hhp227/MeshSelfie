@@ -26,6 +26,7 @@ type GenerationJobRow = {
   output_payload: {
     modelUrl?: string;
     providerModelUrl?: string;
+    thumbnailUrl?: string;
   } | null;
   status: string;
   progress: number | null;
@@ -106,7 +107,10 @@ export async function GET(request: Request, context: RouteContext) {
         } else {
           job.status = "postprocessing";
           job.progress = 90;
-          job.output_payload = { modelUrl: providerJob.outputUrl };
+          job.output_payload = {
+            modelUrl: providerJob.outputUrl,
+            thumbnailUrl: providerJob.thumbnailUrl,
+          };
 
           const [{ error: jobUpdateError }, { error: meshUpdateError }] = await Promise.all([
             supabase
@@ -189,6 +193,7 @@ export async function GET(request: Request, context: RouteContext) {
           jobId: job.id,
           meshId: job.human_mesh_id,
           outputUrl,
+          thumbnailUrl: job.output_payload?.thumbnailUrl,
         });
 
         job.status = "completed";

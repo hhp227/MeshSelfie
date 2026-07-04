@@ -412,3 +412,178 @@ npm run build
 - 업로드 화면의 고정밀 두상 촬영 가이드
 
 상세 설계: `docs/hybrid-head-reconstruction.md`
+
+## 13. 2026-07-04 진행
+
+### Replicate provider 선택 스위치
+
+- `REPLICATE_MODEL_FAMILY=trellis|hunyuan3d`로 Replicate 모델을 선택한다(기본 trellis).
+- `lib/ai/providers/hunyuan3d.ts` 추가: `tencent/hunyuan3d-2mv`, front/side/angle45를
+  방향에 따라 `front_image`/`left_image`/`right_image`에 매핑, `target_face_num=40000`.
+- TRELLIS 파라미터 보정: `texture_size=2048`, `mesh_simplify=0.8`, sampling steps 25.
+- 두 모델 모두 범용 image-to-3D라 얼굴 동일성의 근본 해법은 아니며 비교/완화책이다.
+
+### Hybrid Head Worker Milestone 0 스캐폴드
+
+- `services/head-reconstruction/`에 FastAPI worker 생성. `docs/hybrid-head-reconstruction.md`
+  5절의 `POST /v1/jobs`, `GET /v1/jobs/{id}`, `POST /v1/jobs/{id}/cancel` 계약 구현.
+- Milestone 0 파이프라인(CPU 전용): 정면 사진 → MediaPipe FaceLandmarker(Tasks API,
+  478 landmark) → Delaunay relief 메쉬 → 정면 사진 UV 텍스처 → GLB. 품질 목표가
+  아니라 앱↔worker E2E 검증용. mediapipe 0.10.35에서 구형 `solutions` API가 제거되어
+  Tasks API 기반으로 구현했고, `.task` 모델은 최초 실행 시 자동 다운로드된다.
+- 런타임 검증 완료(uv venv + 실제 `image/front.jpg`): `run_local.py`로 478 정점/918
+  삼각형/461KB GLB 생성, GLB v2 헤더·텍스처 임베드 확인, API 서버 기동 후
+  401 인증 거부 → job 생성 → 폴링 완료 → GLB 다운로드 → 취소까지 계약 전체 검증.
+- Milestone 1(FLAME fitting) 준비물: FLAME 2023 등록·다운로드(무료, 라이선스 확인 필요),
+  GPU 환경(Modal/RunPod 서버리스 권장, job당 $0.02~0.08 추정).
+
+### 랜딩 페이지 개편
+
+- 히어로 캐로우셀, 커뮤니티 갤러리 그리드(placeholder), 이용 3단계, 품질 등급,
+  FAQ, CTA/푸터 구성. 갤러리 실데이터 연동은 썸네일 생성·Gallery API 구현 이후.
+
+### Hybrid Head Worker Milestone 1 — FLAME fitting 구현·검증 완료
+
+- 사용자가 FLAME 2023 Open(CC-BY-4.0)·Mediapipe Landmark Embedding·Vertex Masks를
+  다운로드해 `services/head-reconstruction/models/flame/`에 배치함.
+- `flame_model.py`: flame2023_Open.pkl 로더(chumpy 스텁) + shape 300/expression 100
+  blendshape + 5-joint LBS를 PyTorch로 자체 구현(연구용 라이선스인 smplx 등 미사용).
+  단위 검증: zero-pose == template(2e-8), gradient 흐름, 회전 정상.
+- `flame_fitting.py`: MediaPipe 105 landmark ↔ FLAME 표면 embedding 기반
+  weak-perspective 카메라 + shape/expression/neck/jaw 2단계 Adam 최적화(CPU ~23초,
+  정규화 landmark MSE ~1.2e-4). 정면 사진 투영 per-vertex UV 텍스처, global rotation
+  제거 후 GLB 출력(5,023 정점/9,976 삼각형, ~660KB).
+- 파이프라인: FLAME 자산 존재 시 M1 fitting, 없으면 M0 relief 폴백. torch는 CPU 인덱스로
+  requirements.txt에 추가.
+- 실제 `image/front.jpg` 검증: 점군 프리뷰에서 눈·코·입 텍스처 정렬과 완전한 두상·목
+  형상 확인. 앱 경유 E2E(업로드→생성→폴링→Storage 저장→signed URL 다운로드)도
+  661KB FLAME GLB로 재검증 완료.
+- CC-BY-4.0 저작자 표시를 랜딩 푸터에 추가.
+- M1 한계(다음 작업): 텍스처가 정면 단일 투영(측면·후두부 늘어짐 → M2 multi-view UV
+  합성), 머리카락 volume 없음(→ M3 hair shell), 후두부 geometry는 FLAME 사전 분포 의존.
+
+### Hybrid Head Worker Milestone 2 — multi-view fitting + UV 베이크 구현·검증 완료
+
+- `flame_fitting.py`를 multi-view로 확장: shape/expression/jaw/neck 공유, 뷰별
+  global rotation + weak-perspective 카메라. 비정면 뷰는 yaw 다중 시작(0°, ±45°, ±82°).
+  검출 실패 뷰는 자동 제외(90° 측면은 MediaPipe가 검출하지 못함 — 실측 확인).
+- `texture_bake.py` 신규: xatlas(MIT) UV 아틀라스 + 소프트웨어 래스터라이저로
+  텍셀별 z-buffer 자기가림 검사, 법선·시선 가중 multi-view 블렌딩(1024²),
+  미관측 텍셀 이웃 전파 채움. smplx 등 연구용 라이선스 코드 미사용 원칙 유지.
+- 실측(image/ 3장): front+angle45 사용(side 자동 제외), 46초 CPU, landmark MSE
+  3.4e-4, 915KB GLB(~6.7k 정점). 45도 사진이 측면 볼 텍스처를 실제로 채우는 것을
+  프리뷰로 확인. 두피가 피부색으로 채워지는 것은 의도된 동작(머리카락은 M3).
+- 앱 경유 E2E 재검증 완료(업로드→생성→폴링→Storage 915KB 저장→signed URL 검증).
+- 뷰어(`components/viewer/glb-viewer.tsx`)에 표시 모드 토글 추가: 텍스처(원본
+  머티리얼)/와이어프레임/스무스(클레이 셰이딩, normal 자동 계산). 모드 전환 시
+  원본 머티리얼 복원 후 폐기로 텍스처 누수 방지. lint(react-hooks/refs 수정)·build 통과.
+
+### Hybrid Head Worker Milestone 3 — hair shell 구현·검증 완료
+
+- `segmentation.py` 신규: MediaPipe selfie multiclass segmenter(Apache-2.0, 자동
+  다운로드)로 hair mask 추출 + 구멍 메움/노이즈 제거. 실측에서 긴 머리·앞머리까지
+  정확히 분리됨.
+- `hair_shell.py` 신규: mask 그리드 삼각화 앞·뒤 시트 + 경계 봉합 쉘. 깊이는 head
+  z-buffer(near/far)의 최근접 전파(distance transform) — 앞면 = head 표면 +12mm로
+  얼굴 침범 방지, 긴 머리도 자연스러운 깊이. hair는 별도 doubleSided material로
+  `head`/`hair` 2-지오메트리 GLB(trimesh.Scene) export. 정면 뷰 posed 공간에서 만들어
+  global rotation 역변환으로 neutral 공간에 정렬.
+- 두피 텍셀(FLAME_masks `scalp`, 관측 가중치<0.3)을 머리카락 평균색으로 틴트
+  (`texture_bake.py` override 인자).
+- 실측: hair 1,886 정점/3,768 삼각형, 전체 1.1MB GLB, CPU ~40초. 프리뷰에서
+  정면 헤어 실루엣(양옆 긴 머리+앞머리)과 측면 두피 틴트 확인.
+- 앱 경유 E2E 검증: Storage 저장 GLB에 head/hair 지오메트리 포함 확인. 테스트 계정
+  크레딧은 service role로 3회 충전해 사용.
+- 뷰어 스무스/와이어프레임 머티리얼을 DoubleSide로 변경(얇은 hair 시트 뒷면 표시).
+- 남은 개선 후보: 옆/뒤에서 본 hair shell 볼륨(현재 정면 실루엣 기반 평면),
+  90° 측면 사진의 silhouette 활용, GPU 배포(Modal/RunPod)로 처리 시간 단축.
+
+### Hybrid Head Worker M3+ — 측면 silhouette 활용·hair 볼륨 개선
+
+- `side_view.py` 신규: 90° 측면 사진(landmark 미검출)을 segmentation(hair/face-skin)
+  으로 정합. face-skin 높이 기반 scale **고정** + 위치만 Nelder-Mead 최적화
+  (distance transform 손실, yaw ±90° 후보 중 선택). scale 자유 최적화 시 모델이
+  mask 안으로 축소되는 퇴화 해 발생 — 실측으로 확인 후 고정 방식 채택
+  (정합 손실 1.4 vs 반대 yaw 29로 방향 판별 명확).
+- 정합 좌표계에서 높이별 "후두부 hair 초과 두께" 프로파일을 추정해 hair shell
+  뒤 시트 깊이에 반영. 깊이맵 gaussian 스무딩(σ=6px) 추가로 측면 형상 개선.
+- 실측: hair z 최소 -0.163 → **-0.219** (후두부 뒤로 ~5.6cm 볼륨 추가, 측면 사진
+  실루엣과 일치). 파이프라인 총 ~55초 CPU. 앱 경유 E2E로 Storage 저장까지 검증.
+- GPU 배포(Modal/RunPod)는 계정·결제 필요로 미착수 — worker README의 배포 옵션
+  표 참고. Dockerfile은 준비되어 있음.
+
+### 메인 페이지를 서비스 홈으로 전환
+
+- 기존 랜딩 콘텐츠(히어로 캐로우셀, 3단계, 갤러리, 품질 등급, FAQ)를 `/landing`
+  라우트로 이동. 랜딩의 보조 CTA는 "서비스 홈으로"(`/`)로 변경.
+- `/`는 서비스 홈(`components/home/home-client.tsx`): 로그인 사용자에게 인사말·
+  크레딧 요약·"새 3D 모델 생성" CTA, 내 모델 SNS형 카드 그리드(상태/품질 배지,
+  클릭 시 결과 페이지), 커뮤니티 갤러리(placeholder), FLAME 표기 푸터를 보여준다.
+  비로그인 방문자는 클라이언트 세션 확인 후 `/landing`으로 replace.
+- 로그인 성공 기본 이동을 `/dashboard` → `/`(서비스 홈)로 변경, AppNav에 "홈" 링크
+  추가(로고도 `/`로). 대시보드는 "전체 관리" 용도로 유지.
+- 썸네일 미구현 상태라 내 모델 카드는 그라디언트 placeholder를 사용 — 썸네일
+  생성 구현 시 `thumbnailUrl`로 교체 예정.
+
+### 썸네일 생성 구현·검증 완료
+
+- worker `thumbnail.py` 신규: GPU/EGL 없이 numpy 소프트웨어 래스터라이저로
+  head+hair 씬을 512px JPEG 렌더(14° 3/4 구도, Lambert 셰이딩, ~2초).
+  파이프라인에서 best-effort로 생성, `/files/{id}/thumbnail.jpg` 서빙 및
+  `output.thumbnailUrl` 반환.
+- 앱 연동: `ProviderJobStatus.thumbnailUrl` → generation-jobs 라우트가
+  output_payload에 보존 → `finalize.ts::storeThumbnail`이 다운로드(신뢰 host 검증,
+  JPEG magic, 5MB 상한) 후 `thumbnails/{user}/{mesh}/thumbnail.jpg` 업로드 및
+  `human_meshes` thumbnail 필드 갱신. 썸네일 실패는 생성 완료를 막지 않음.
+- `GET /api/avatars`가 `thumbnail_object_path` 기반 signed URL(5분)을
+  `createSignedUrls` 배치로 발급. 홈 카드가 썸네일 있으면 실제 이미지, 없으면
+  기존 placeholder 렌더.
+- E2E 검증: worker 썸네일 34,785B → Storage 저장 → 목록 API signed URL →
+  다운로드 JPEG magic 확인. TRELLIS/Hunyuan(Replicate) 경로는 provider가 썸네일을
+  주지 않으므로 placeholder 유지(추후 클라이언트 캡처 방식 검토 가능).
+- 과거 완료 mesh들은 소급 생성되지 않음 — 새 생성부터 썸네일이 붙는다.
+
+### Modal 서버리스 배포 완료
+
+- `services/head-reconstruction/modal_app.py`: CPU 8코어/8GB, `max_containers=1`
+  + `scaledown_window=300`(인메모리 job 저장소 대응), `@modal.concurrent`(폴링 병행),
+  FLAME 자산·코드 mount, API 키는 Modal Secret(`meshselfie-head-recon`).
+- worker가 공개 URL을 요청 Host/X-Forwarded-Proto 헤더에서 자동 유도하도록 개선
+  (배포 URL 선지정 불필요, 로컬 동작 동일).
+- 시행착오: 첫 배포에서 mediapipe가 `libGLESv2.so.2` 미존재로 실패 →
+  apt `libegl1`, `libgles2` 추가 후 정상.
+- 배포 URL `https://hhp0227--meshselfie-head-recon-api.modal.run`. 앱 `.env.local`을
+  Modal로 전환하고 E2E 검증: 생성 79초(콜드스타트 포함)에 완료, head+hair GLB
+  1.12MB Storage 저장, 썸네일 signed URL 정상. 비용은 job당 ~$0.01 수준(무료 크레딧 내).
+- 로컬 worker(8100)는 개발용으로 유지 — `.env.local` URL 교체로 전환.
+
+### Vercel 프로덕션 배포 완료
+
+- 프로덕션 URL: **https://meshselfie.vercel.app** (프로젝트 `meshselfie`,
+  계정 hong227-2018/hhp227). 배포는 `npx vercel deploy --prod --yes`.
+- 환경 변수 6종(Supabase 3, Replicate 1, HEAD_RECONSTRUCTION 2)을 Vercel
+  production 환경에 등록 — 생성 요청은 Modal worker로 간다.
+- 시행착오 2건: ① `vercel link`가 FastAPI worker까지 포함한 멀티서비스
+  `vercel.json`을 자동 생성 → Next.js 단일 앱(`{"framework":"nextjs"}`)으로 교체.
+  ② `.vercelignore`의 `supabase/` 패턴이 `lib/supabase/`까지 매칭돼 빌드 실패 →
+  루트 앵커(`/supabase/`)로 수정. 두 파일 모두 주석으로 이유 기록.
+- 프로덕션 E2E 검증: 로그인 → 업로드 → 생성(Modal) → 48초 완료 → Storage 저장
+  → 썸네일 signed URL까지 전 구간 통과.
+- 전체 아키텍처가 클라우드화됨: Vercel(Next.js) + Modal(3D worker) +
+  Supabase(Auth/DB/Storage). 로컬 의존 없음.
+
+### 이미지 품질 검증 구현 (PRD 2.4 부분)
+
+- worker `validation.py` + `POST /v1/validate`: FaceLandmarker(최대 5명) 얼굴 수·
+  bbox·크기 비율 + 512px 정규화 Laplacian 블러 점수. worker는 원시 메트릭만 주고
+  역할별 정책·한국어 메시지는 앱이 결정(`lib/generation/image-validation.ts`).
+- 업로드 라우트: Storage 업로드 → signed URL로 worker 검증 → 하드 실패(정면 얼굴
+  없음/다중 인물) 시 업로드 객체 삭제 + 400, 통과 시 `validation_status`(passed/
+  warning)·`face_bbox`·`blur_score`·`validation_warnings` 저장. worker 미설정·호출
+  실패(콜드스타트 타임아웃 포함) 시 pending으로 강등하고 업로드는 계속(best-effort).
+- 90° 측면은 얼굴 미검출이 정상이므로 side/angle45의 얼굴 0명은 경고만.
+- generate 라우트: `validation_status='failed'` 이미지 사용 차단(방어적).
+- 실측: 정면 얼굴없음→400, 다중 인물(sample2)→400(웜 4.6초), 정상 3장→
+  front passed/side warning/angle45 passed. 블러 점수 분리도(선명 270~680 vs
+  블러 1.7) 확인, 경고 임계 40.
+- 미구현 잔여(PRD 2.4): 가림/선글라스/마스크 감지 — 별도 분류기 필요.

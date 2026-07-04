@@ -10,11 +10,22 @@ type GlbViewerProps = {
   onSignedUrlExpired?: () => void;
 };
 
+type DisplayMode = "texture" | "wireframe" | "smooth";
+
+const DISPLAY_MODES: Array<{ key: DisplayMode; label: string }> = [
+  { key: "texture", label: "텍스처" },
+  { key: "wireframe", label: "와이어프레임" },
+  { key: "smooth", label: "스무스" },
+];
+
 export function GlbViewer({ modelUrl, onSignedUrlExpired }: GlbViewerProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [loadAttempt, setLoadAttempt] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [displayMode, setDisplayMode] = useState<DisplayMode>("texture");
+  const displayModeRef = useRef<DisplayMode>("texture");
+  const applyModeRef = useRef<(mode: DisplayMode) => void>(() => {});
 
   useEffect(() => {
     const container = containerRef.current;
@@ -58,6 +69,54 @@ export function GlbViewer({ modelUrl, onSignedUrlExpired }: GlbViewerProps) {
     fillLight.position.set(-4, 1, 3);
     scene.add(fillLight);
 
+    // 표시 모드용 공유 머티리얼 (텍스처 모드는 원본 머티리얼 복원)
+    // DoubleSide: hair shell처럼 얇은 시트 지오메트리도 뒷면이 보이도록
+    const clayMaterial = new THREE.MeshStandardMaterial({
+      color: 0xd6d3d1,
+      roughness: 0.6,
+      metalness: 0.0,
+      side: THREE.DoubleSide,
+    });
+    const wireframeMaterial = new THREE.MeshBasicMaterial({
+      color: 0x27272a,
+      wireframe: true,
+      side: THREE.DoubleSide,
+    });
+
+    const applyDisplayMode = (mode: DisplayMode) => {
+      if (!loadedScene) {
+        return;
+      }
+
+      loadedScene.traverse((object) => {
+        if (!(object instanceof THREE.Mesh)) {
+          return;
+        }
+
+        if (!object.userData.originalMaterial) {
+          object.userData.originalMaterial = object.material;
+        }
+
+        // 스무스/클레이 셰이딩에는 vertex normal이 필요하다 (GLB에 없으면 계산)
+        if (!object.geometry.attributes.normal) {
+          object.geometry.computeVertexNormals();
+        }
+
+        switch (mode) {
+          case "texture":
+            object.material = object.userData.originalMaterial;
+            break;
+          case "wireframe":
+            object.material = wireframeMaterial;
+            break;
+          case "smooth":
+            object.material = clayMaterial;
+            break;
+        }
+      });
+    };
+    applyModeRef.current = applyDisplayMode;
+
     const resize = () => {
       const width = Math.max(container.clientWidth, 1);
       const height = Math.max(container.clientHeight, 1);
@@ -89,6 +148,7 @@ export function GlbViewer({ modelUrl, onSignedUrlExpired }: GlbViewerProps) {
         loadedScene = gltf.scene;
         scene.add(gltf.scene);
         frameModel(gltf.scene, camera, controls);
+        applyDisplayMode(displayModeRef.current);
         setLoading(false);
       },
       undefined,
@@ -105,20 +165,30 @@ export function GlbViewer({ modelUrl, onSignedUrlExpired }: GlbViewerProps) {
 
     return () => {
       disposed = true;
+      applyModeRef.current = () => {};
       window.cancelAnimationFrame(frameId);
       resizeObserver.disconnect();
       controls.dispose();
 
       if (loadedScene) {
+        // 원본 머티리얼을 복원한 뒤 폐기해야 텍스처 머티리얼이 누수되지 않는다
+        applyDisplayMode("texture");
         scene.remove(loadedScene);
         disposeObject(loadedScene);
       }
 
+      clayMaterial.dispose();
+      wireframeMaterial.dispose();
       renderer.dispose();
       renderer.forceContextLoss();
       renderer.domElement.remove();
     };
   }, [loadAttempt, modelUrl]);
+
+  useEffect(() => {
+    displayModeRef.current = displayMode;
+    applyModeRef.current(displayMode);
+  }, [displayMode]);
 
   function retry() {
     if (onSignedUrlExpired) {
@@ -155,9 +225,27 @@ export function GlbViewer({ modelUrl, onSignedUrlExpired }: GlbViewerProps) {
       ) : null}
 
       {!loading && !error ? (
-        <p className="pointer-events-none absolute bottom-3 left-3 rounded bg-white/85 px-2 py-1 text-xs text-zinc-600 shadow-sm">
-          드래그: 회전 · 휠/핀치: 확대 및 축소
-        </p>
+        <>
+          <div className="absolute right-3 top-3 flex gap-1 rounded-md bg-white/90 p-1 shadow-sm">
+            {DISPLAY_MODES.map((item) => (
+              <button
+                key={item.key}
+                type="button"
+                onClick={() => setDisplayMode(item.key)}
+                className={`rounded px-2.5 py-1 text-xs font-semibold transition-colors ${
+                  displayMode === item.key
+                    ? "bg-zinc-950 text-white"
+                    : "text-zinc-600 hover:bg-zinc-100"
+                }`}
+              >
+                {item.label}
+              </button>
+            ))}
+          </div>
+          <p className="pointer-events-none absolute bottom-3 left-3 rounded bg-white/85 px-2 py-1 text-xs text-zinc-600 shadow-sm">
+            드래그: 회전 · 휠/핀치: 확대 및 축소
+          </p>
+        </>
       ) : null}
     </div>
   );

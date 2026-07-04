@@ -41,3 +41,6 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# 로컬 테스트 사진 (재클론 시 백업에서 복원)
+/image/

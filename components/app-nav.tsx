@@ -6,10 +6,13 @@ export function AppNav() {
   return (
     <header className="border-b border-zinc-200 bg-white">
       <div className="mx-auto flex h-16 w-full max-w-6xl items-center justify-between px-6">
-        <Link href="/dashboard" className="text-base font-semibold tracking-tight">
+        <Link href="/" className="text-base font-semibold tracking-tight">
           MeshSelfie
         </Link>
         <nav className="flex items-center gap-4 text-sm font-medium text-zinc-700">
+          <Link href="/" className="hover:text-zinc-950">
+            홈
+          </Link>
           <Link href="/dashboard" className="hover:text-zinc-950">
             대시보드
           </Link>

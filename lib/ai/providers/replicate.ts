@@ -6,9 +6,16 @@ import type {
 
 const REPLICATE_API_URL = "https://api.replicate.com/v1";
 
+export type ReplicatePredictionStatus =
+  | "starting"
+  | "processing"
+  | "succeeded"
+  | "failed"
+  | "canceled";
+
 type ReplicatePrediction = {
   id?: string;
-  status?: "starting" | "processing" | "succeeded" | "failed" | "canceled";
+  status?: ReplicatePredictionStatus;
   output?: {
     model_file?: string;
   } | null;
@@ -23,6 +30,53 @@ export class ReplicateProviderError extends Error {
   ) {
     super(message);
     this.name = "ReplicateProviderError";
+  }
+}
+
+export async function replicateApiRequest<T = unknown>(
+  apiToken: string,
+  path: string,
+  init: RequestInit = {},
+): Promise<T> {
+  const response = await fetch(`${REPLICATE_API_URL}${path}`, {
+    ...init,
+    headers: {
+      Authorization: `Bearer ${apiToken}`,
+      "Content-Type": "application/json",
+      ...init.headers,
+    },
+    cache: "no-store",
+  });
+
+  const body = (await response.json().catch(() => null)) as T | null;
+
+  if (!response.ok) {
+    throw new ReplicateProviderError(
+      `Replicate API request failed with status ${response.status}.`,
+      response.status,
+      body,
+    );
+  }
+
+  return body as T;
+}
+
+export function normalizeReplicateStatus(
+  status: ReplicatePrediction["status"],
+): ProviderJobStatus["status"] {
+  switch (status) {
+    case "starting":
+      return "queued";
+    case "processing":
+      return "generating";
+    case "succeeded":
+      return "completed";
+    case "failed":
+      return "failed";
+    case "canceled":
+      return "canceled";
+    default:
+      return "queued";
   }
 }
 
@@ -62,6 +116,15 @@ export class ReplicateHumanMeshProvider implements AIProvider {
           generate_model: true,
           generate_color: true,
           randomize_seed: true,
+          // TRELLIS defaults (mesh_simplify=0.95, texture_size=1024, 12 sampling steps) are
+          // tuned for generic 3D assets and discard most facial/hair detail. These values trade
+          // longer generation time and larger GLBs (still well under the 50MB cap) for more
+          // retained geometry and texture resolution; they do not fix TRELLIS's lack of true
+          // face-identity fitting — see docs/hybrid-head-reconstruction.md for the actual fix.
+          texture_size: 2048,
+          mesh_simplify: 0.8,
+          ss_sampling_steps: 25,
+          slat_sampling_steps: 25,
         },
       }),
     });
@@ -82,7 +145,7 @@ export class ReplicateHumanMeshProvider implements AIProvider {
     );
 
     return {
-      status: normalizeStatus(prediction.status),
+      status: normalizeReplicateStatus(prediction.status),
       outputUrl: prediction.output?.model_file,
       errorCode: prediction.status === "failed" ? "REPLICATE_PREDICTION_FAILED" : undefined,
       errorMessage: prediction.error ?? undefined,
@@ -96,44 +159,7 @@ export class ReplicateHumanMeshProvider implements AIProvider {
     });
   }
 
-  private async request<T = unknown>(path: string, init: RequestInit = {}) {
-    const response = await fetch(`${REPLICATE_API_URL}${path}`, {
-      ...init,
-      headers: {
-        Authorization: `Bearer ${this.apiToken}`,
-        "Content-Type": "application/json",
-        ...init.headers,
-      },
-      cache: "no-store",
-    });
-
-    const body = (await response.json().catch(() => null)) as T | null;
-
-    if (!response.ok) {
-      throw new ReplicateProviderError(
-        `Replicate API request failed with status ${response.status}.`,
-        response.status,
-        body,
-      );
-    }
-
-    return body as T;
-  }
-}
-
-function normalizeStatus(status: ReplicatePrediction["status"]): ProviderJobStatus["status"] {
-  switch (status) {
-    case "starting":
-      return "queued";
-    case "processing":
-      return "generating";
-    case "succeeded":
-      return "completed";
-    case "failed":
-      return "failed";
-    case "canceled":
-      return "canceled";
-    default:
-      return "queued";
+  private request<T = unknown>(path: string, init: RequestInit = {}) {
+    return replicateApiRequest<T>(this.apiToken, path, init);
   }
 }

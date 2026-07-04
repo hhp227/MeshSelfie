@@ -23,12 +23,14 @@ export async function finalizeGeneration({
   jobId,
   meshId,
   outputUrl,
+  thumbnailUrl,
 }: {
   supabase: SupabaseClient;
   userId: string;
   jobId: string;
   meshId: string;
   outputUrl: string;
+  thumbnailUrl?: string;
 }) {
   assertTrustedOutputUrl(outputUrl);
 
@@ -142,6 +144,15 @@ export async function finalizeGeneration({
     );
   }
 
+  // 썸네일은 best-effort — 실패해도 생성 완료 처리는 유지한다
+  if (thumbnailUrl) {
+    try {
+      await storeThumbnail({ supabase, userId, meshId, thumbnailUrl });
+    } catch (thumbnailError) {
+      console.warn("Thumbnail finalization failed", thumbnailError);
+    }
+  }
+
   await supabase.from("usage_events").insert({
     user_id: userId,
     event_type: "generation_completed",
@@ -159,6 +170,66 @@ export async function finalizeGeneration({
     fileSizeBytes: bytes.byteLength,
     completedAt,
   };
+}
+
+const MAX_THUMBNAIL_BYTES = 5 * 1024 * 1024;
+
+async function storeThumbnail({
+  supabase,
+  userId,
+  meshId,
+  thumbnailUrl,
+}: {
+  supabase: SupabaseClient;
+  userId: string;
+  meshId: string;
+  thumbnailUrl: string;
+}) {
+  assertTrustedOutputUrl(thumbnailUrl);
+
+  const response = await fetch(thumbnailUrl, {
+    cache: "no-store",
+    redirect: "follow",
+    signal: AbortSignal.timeout(DOWNLOAD_TIMEOUT_MS),
+  });
+
+  if (!response.ok) {
+    throw new Error(`Thumbnail download returned ${response.status}.`);
+  }
+
+  const bytes = new Uint8Array(await response.arrayBuffer());
+
+  // JPEG magic(0xFFD8) + 크기 상한 검증
+  if (bytes.byteLength < 3 || bytes[0] !== 0xff || bytes[1] !== 0xd8) {
+    throw new Error("Thumbnail is not a valid JPEG.");
+  }
+
+  if (bytes.byteLength > MAX_THUMBNAIL_BYTES) {
+    throw new Error(`Thumbnail size ${bytes.byteLength} exceeds ${MAX_THUMBNAIL_BYTES}.`);
+  }
+
+  const thumbnailPath = `thumbnails/${userId}/${meshId}/thumbnail.jpg`;
+  const { error: uploadError } = await supabase.storage
+    .from(MODEL_BUCKET)
+    .upload(thumbnailPath, bytes, {
+      contentType: "image/jpeg",
+      upsert: true,
+    });
+
+  if (uploadError) {
+    throw new Error(uploadError.message);
+  }
+
+  await supabase
+    .from("human_meshes")
+    .update({
+      thumbnail_bucket: MODEL_BUCKET,
+      thumbnail_object_path: thumbnailPath,
+      thumbnail_generated_at: new Date().toISOString(),
+    })
+    .eq("id", meshId)
+    .eq("user_id", userId)
+    .is("soft_deleted_at", null);
 }
 
 function assertTrustedOutputUrl(outputUrl: string) {
