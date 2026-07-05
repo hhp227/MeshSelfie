@@ -25,6 +25,7 @@ type GenerateResponse = {
 };
 
 type UploadMode = "photos" | "scan";
+type ScanInputKind = "video" | "photoset";
 
 type ScanUploadResponse = {
   data: {
@@ -34,11 +35,83 @@ type ScanUploadResponse = {
   };
 };
 
+type ScanUploadUrlsResponse = {
+  data: {
+    scanSessionId: string;
+    bucket: string;
+    uploads: Array<{ path: string; token: string }>;
+  };
+};
+
+const SCAN_PHOTO_MIN = 15;
+const SCAN_PHOTO_MAX = 80;
+const SCAN_PHOTO_LONG_EDGE = 1600; // 워커 COLMAP 해상도 상한 — 그 이상은 업로드 낭비
+const SCAN_UPLOAD_CONCURRENCY = 4;
+
+/** 긴 변 1600px JPEG로 다운스케일 (EXIF 회전 반영) — 업로드 용량·시간 절감 */
+async function downscaleScanPhoto(file: File): Promise<Blob> {
+  let bitmap: ImageBitmap;
+
+  try {
+    bitmap = await createImageBitmap(file, { imageOrientation: "from-image" });
+  } catch {
+    bitmap = await createImageBitmap(file);
+  }
+
+  try {
+    const scale = Math.min(1, SCAN_PHOTO_LONG_EDGE / Math.max(bitmap.width, bitmap.height));
+    const width = Math.max(1, Math.round(bitmap.width * scale));
+    const height = Math.max(1, Math.round(bitmap.height * scale));
+    const canvas = document.createElement("canvas");
+    canvas.width = width;
+    canvas.height = height;
+    const context = canvas.getContext("2d");
+
+    if (!context) {
+      throw new Error("이미지 처리를 지원하지 않는 브라우저입니다.");
+    }
+
+    context.drawImage(bitmap, 0, 0, width, height);
+
+    const blob = await new Promise<Blob | null>((resolve) =>
+      canvas.toBlob(resolve, "image/jpeg", 0.85),
+    );
+
+    if (!blob) {
+      throw new Error("이미지 변환에 실패했습니다.");
+    }
+
+    return blob;
+  } finally {
+    bitmap.close();
+  }
+}
+
+async function runWithConcurrency<T>(
+  items: T[],
+  worker: (item: T, index: number) => Promise<void>,
+  concurrency: number,
+) {
+  let nextIndex = 0;
+
+  await Promise.all(
+    Array.from({ length: Math.min(concurrency, items.length) }, async () => {
+      while (nextIndex < items.length) {
+        const index = nextIndex;
+        nextIndex += 1;
+        await worker(items[index], index);
+      }
+    }),
+  );
+}
+
 export function UploadForm() {
   const router = useRouter();
   const supabase = useMemo(() => createBrowserSupabaseClient(), []);
   const [mode, setMode] = useState<UploadMode>("photos");
+  const [scanInputKind, setScanInputKind] = useState<ScanInputKind>("video");
   const [scanVideo, setScanVideo] = useState<File | null>(null);
+  const [scanPhotos, setScanPhotos] = useState<File[]>([]);
   const [frontImage, setFrontImage] = useState<File | null>(null);
   const [sideImage, setSideImage] = useState<File | null>(null);
   const [angle45Image, setAngle45Image] = useState<File | null>(null);
@@ -62,9 +135,133 @@ export function UploadForm() {
     return token;
   }
 
-  async function handleScanSubmit() {
+  async function requestScanGenerate(token: string, scanSessionId: string) {
+    setMessage("3D 재구성을 요청하는 중입니다. 5~15분 정도 걸립니다.");
+
+    const generateResult = await fetch("/api/scans/generate", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ scanSessionId }),
+    });
+
+    if (!generateResult.ok) {
+      const body = await generateResult.json();
+      throw new Error(body.error?.message ?? "재구성 요청에 실패했습니다.");
+    }
+
+    const generateJson = (await generateResult.json()) as GenerateResponse;
+    router.push(`/result/${generateJson.data.humanMeshId}`);
+  }
+
+  async function uploadScanVideo(token: string) {
     if (!scanVideo) {
+      throw new Error("스캔 동영상을 선택해주세요.");
+    }
+
+    const formData = new FormData();
+    formData.append("video", scanVideo);
+
+    setMessage("스캔 동영상을 업로드하는 중입니다.");
+
+    const uploadResult = await fetch("/api/scans/upload", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+      body: formData,
+    });
+
+    if (!uploadResult.ok) {
+      const body = await uploadResult.json();
+      throw new Error(body.error?.message ?? "스캔 업로드에 실패했습니다.");
+    }
+
+    const uploadJson = (await uploadResult.json()) as ScanUploadResponse;
+    return uploadJson.data.scanSessionId;
+  }
+
+  async function uploadScanPhotos(token: string) {
+    if (scanPhotos.length < SCAN_PHOTO_MIN || scanPhotos.length > SCAN_PHOTO_MAX) {
+      throw new Error(
+        `사진은 ${SCAN_PHOTO_MIN}~${SCAN_PHOTO_MAX}장이어야 합니다 (현재 ${scanPhotos.length}장, 권장 40장).`,
+      );
+    }
+
+    if (!supabase) {
+      throw new Error("Supabase 환경 변수가 설정되지 않았습니다.");
+    }
+
+    setMessage(`사진 ${scanPhotos.length}장을 변환하는 중입니다.`);
+
+    const blobs: Blob[] = [];
+
+    for (const photo of scanPhotos) {
+      blobs.push(await downscaleScanPhoto(photo));
+    }
+
+    const urlsResult = await fetch("/api/scans/upload-urls", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ contentTypes: blobs.map(() => "image/jpeg") }),
+    });
+
+    if (!urlsResult.ok) {
+      const body = await urlsResult.json();
+      throw new Error(body.error?.message ?? "업로드 URL 발급에 실패했습니다.");
+    }
+
+    const urlsJson = (await urlsResult.json()) as ScanUploadUrlsResponse;
+    const { scanSessionId, bucket, uploads } = urlsJson.data;
+    let uploaded = 0;
+
+    await runWithConcurrency(
+      uploads,
+      async (upload, index) => {
+        const { error: uploadError } = await supabase.storage
+          .from(bucket)
+          .uploadToSignedUrl(upload.path, upload.token, blobs[index], {
+            contentType: "image/jpeg",
+          });
+
+        if (uploadError) {
+          throw new Error(`사진 업로드에 실패했습니다 (${index + 1}번째). 다시 시도해주세요.`);
+        }
+
+        uploaded += 1;
+        setMessage(`사진 업로드 중 (${uploaded}/${uploads.length})`);
+      },
+      SCAN_UPLOAD_CONCURRENCY,
+    );
+
+    const completeResult = await fetch("/api/scans/upload-complete", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ scanSessionId }),
+    });
+
+    if (!completeResult.ok) {
+      const body = await completeResult.json();
+      throw new Error(body.error?.message ?? "업로드 확정에 실패했습니다.");
+    }
+
+    return scanSessionId;
+  }
+
+  async function handleScanSubmit() {
+    if (scanInputKind === "video" && !scanVideo) {
       setError("스캔 동영상을 선택해주세요.");
+      return;
+    }
+
+    if (scanInputKind === "photoset" && scanPhotos.length === 0) {
+      setError("스캔 사진을 선택해주세요.");
       return;
     }
 
@@ -72,42 +269,10 @@ export function UploadForm() {
 
     try {
       const token = await getAccessToken();
-      const formData = new FormData();
-      formData.append("video", scanVideo);
+      const scanSessionId =
+        scanInputKind === "video" ? await uploadScanVideo(token) : await uploadScanPhotos(token);
 
-      setMessage("스캔 동영상을 업로드하는 중입니다.");
-
-      const uploadResult = await fetch("/api/scans/upload", {
-        method: "POST",
-        headers: { Authorization: `Bearer ${token}` },
-        body: formData,
-      });
-
-      if (!uploadResult.ok) {
-        const body = await uploadResult.json();
-        throw new Error(body.error?.message ?? "스캔 업로드에 실패했습니다.");
-      }
-
-      const uploadJson = (await uploadResult.json()) as ScanUploadResponse;
-
-      setMessage("3D 재구성을 요청하는 중입니다. 5~15분 정도 걸립니다.");
-
-      const generateResult = await fetch("/api/scans/generate", {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${token}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ scanSessionId: uploadJson.data.scanSessionId }),
-      });
-
-      if (!generateResult.ok) {
-        const body = await generateResult.json();
-        throw new Error(body.error?.message ?? "재구성 요청에 실패했습니다.");
-      }
-
-      const generateJson = (await generateResult.json()) as GenerateResponse;
-      router.push(`/result/${generateJson.data.humanMeshId}`);
+      await requestScanGenerate(token, scanSessionId);
     } catch (submitError) {
       setError(submitError instanceof Error ? submitError.message : "요청 처리에 실패했습니다.");
       setPending(false);
@@ -223,31 +388,87 @@ export function UploadForm() {
 
       {mode === "scan" ? (
         <>
+          <div className="grid grid-cols-2 rounded-lg border border-zinc-200 bg-white p-1 text-sm font-medium">
+            {(
+              [
+                ["photoset", "사진 여러 장 (권장)"],
+                ["video", "동영상"],
+              ] as const
+            ).map(([value, label]) => (
+              <button
+                key={value}
+                type="button"
+                onClick={() => setScanInputKind(value)}
+                className={`rounded-md px-3 py-2 ${
+                  scanInputKind === value
+                    ? "bg-teal-700 text-white"
+                    : "text-zinc-600 hover:bg-zinc-100"
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+
           <div className="rounded-lg border border-teal-200 bg-teal-50 p-4 text-sm text-teal-950">
             <p className="font-semibold">스캔 촬영 기준 (품질의 90%는 촬영이 결정합니다)</p>
-            <ul className="mt-1 list-disc pl-5 leading-6 text-teal-900">
-              <li>10~20초, 45MB 이하 MP4/MOV</li>
-              <li>피사체는 완전 정지(표정·시선 고정), 카메라가 얼굴 주위로 천천히 반원 이동</li>
-              <li>균일한 밝은 조명, 흔들림(블러) 없이, 얼굴이 화면의 절반 이상</li>
-            </ul>
+            {scanInputKind === "photoset" ? (
+              <ul className="mt-1 list-disc pl-5 leading-6 text-teal-900">
+                <li>15~80장 (40장 이상이면 S 등급) · JPG/PNG</li>
+                <li>피사체 주위를 돌며 한 걸음마다 멈춰서 한 장씩 — 흔들림 없는 사진이 핵심</li>
+                <li>표면에 무늬·질감이 있는 피사체, 균일한 밝은 조명, 모든 각도에서 겹치게</li>
+              </ul>
+            ) : (
+              <ul className="mt-1 list-disc pl-5 leading-6 text-teal-900">
+                <li>10~20초, 45MB 이하 MP4/MOV</li>
+                <li>피사체는 완전 정지(표정·시선 고정), 카메라가 얼굴 주위로 천천히 반원 이동</li>
+                <li>균일한 밝은 조명, 흔들림(블러) 없이, 얼굴이 화면의 절반 이상</li>
+              </ul>
+            )}
           </div>
-          <div className="rounded-lg border border-zinc-200 bg-white p-5">
-            <div className="flex items-center justify-between">
-              <h2 className="font-semibold text-zinc-950">스캔 동영상</h2>
-              <span className="rounded-md bg-zinc-100 px-2 py-1 text-xs text-zinc-600">필수</span>
+
+          {scanInputKind === "photoset" ? (
+            <div className="rounded-lg border border-zinc-200 bg-white p-5">
+              <div className="flex items-center justify-between">
+                <h2 className="font-semibold text-zinc-950">스캔 사진 (15~80장)</h2>
+                <span className="rounded-md bg-zinc-100 px-2 py-1 text-xs text-zinc-600">필수</span>
+              </div>
+              <label className="mt-4 flex aspect-[3/1] cursor-pointer items-center justify-center rounded-md border border-dashed border-zinc-300 bg-zinc-50 px-4 text-center text-sm text-zinc-500 hover:bg-zinc-100">
+                <input
+                  type="file"
+                  accept="image/jpeg,image/png"
+                  multiple
+                  className="sr-only"
+                  onChange={(event) => setScanPhotos(Array.from(event.target.files ?? []))}
+                />
+                {scanPhotos.length > 0
+                  ? `${scanPhotos.length}장 선택됨 (${(
+                      scanPhotos.reduce((total, photo) => total + photo.size, 0) /
+                      1024 /
+                      1024
+                    ).toFixed(1)}MB — 업로드 시 자동 축소)`
+                  : "JPG/PNG 여러 장 선택 (권장 40장)"}
+              </label>
             </div>
-            <label className="mt-4 flex aspect-[3/1] cursor-pointer items-center justify-center rounded-md border border-dashed border-zinc-300 bg-zinc-50 px-4 text-center text-sm text-zinc-500 hover:bg-zinc-100">
-              <input
-                type="file"
-                accept="video/mp4,video/quicktime"
-                className="sr-only"
-                onChange={(event) => setScanVideo(event.target.files?.[0] ?? null)}
-              />
-              {scanVideo
-                ? `${scanVideo.name} (${(scanVideo.size / 1024 / 1024).toFixed(1)}MB)`
-                : "MP4/MOV 선택 (10~20초 궤도 촬영)"}
-            </label>
-          </div>
+          ) : (
+            <div className="rounded-lg border border-zinc-200 bg-white p-5">
+              <div className="flex items-center justify-between">
+                <h2 className="font-semibold text-zinc-950">스캔 동영상</h2>
+                <span className="rounded-md bg-zinc-100 px-2 py-1 text-xs text-zinc-600">필수</span>
+              </div>
+              <label className="mt-4 flex aspect-[3/1] cursor-pointer items-center justify-center rounded-md border border-dashed border-zinc-300 bg-zinc-50 px-4 text-center text-sm text-zinc-500 hover:bg-zinc-100">
+                <input
+                  type="file"
+                  accept="video/mp4,video/quicktime"
+                  className="sr-only"
+                  onChange={(event) => setScanVideo(event.target.files?.[0] ?? null)}
+                />
+                {scanVideo
+                  ? `${scanVideo.name} (${(scanVideo.size / 1024 / 1024).toFixed(1)}MB)`
+                  : "MP4/MOV 선택 (10~20초 궤도 촬영)"}
+              </label>
+            </div>
+          )}
         </>
       ) : (
         <div className="rounded-lg border border-blue-200 bg-blue-50 p-4 text-sm text-blue-950">

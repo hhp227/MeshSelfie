@@ -73,6 +73,28 @@ export function calculateQualityGrade(inputImageCount: number): QualityGrade {
   return "B";
 }
 
+export type ScanQualityGrade = "B" | "A" | "S" | "S+";
+
+export const SCAN_MIN_PHOTOS = 15;
+export const SCAN_MAX_PHOTOS = 80;
+
+/** PRD v2.0 §4: 사진 수 기반 스캔 품질 등급 */
+export function calculateScanQualityGrade(frameCount: number): ScanQualityGrade {
+  if (frameCount >= 80) {
+    return "S+";
+  }
+
+  if (frameCount >= 40) {
+    return "S";
+  }
+
+  if (frameCount >= 20) {
+    return "A";
+  }
+
+  return "B";
+}
+
 export async function sha256Hex(file: File) {
   const digest = await crypto.subtle.digest("SHA-256", await file.arrayBuffer());
   return Array.from(new Uint8Array(digest))

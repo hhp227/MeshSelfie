@@ -2,24 +2,19 @@ import { randomUUID } from "crypto";
 
 import { getAuthenticatedUser } from "@/lib/auth";
 import { jsonError } from "@/lib/api";
+import {
+  calculateScanQualityGrade,
+  SCAN_MAX_PHOTOS,
+  SCAN_MIN_PHOTOS,
+} from "@/lib/uploads";
 
 const MAX_VIDEO_BYTES = 45 * 1024 * 1024; // Supabase 무료 티어 파일당 50MB 제한 고려
 const MAX_PHOTO_BYTES = 15 * 1024 * 1024;
-const MIN_PHOTOS = 15;
-const MAX_PHOTOS = 80;
 const VIDEO_TYPES = new Map([
   ["video/mp4", "mp4"],
   ["video/quicktime", "mov"],
 ]);
 const PHOTO_TYPES = new Set(["image/jpeg", "image/png"]);
-
-/** PRD v2.0 §4: 사진 수 기반 품질 등급 */
-function scanQualityGrade(frameCount: number): "B" | "A" | "S" | "S+" {
-  if (frameCount >= 80) return "S+";
-  if (frameCount >= 40) return "S";
-  if (frameCount >= 20) return "A";
-  return "B";
-}
 
 export async function POST(request: Request) {
   const auth = await getAuthenticatedUser(request);
@@ -86,10 +81,10 @@ export async function POST(request: Request) {
   }
 
   // 다중 사진 입력
-  if (photos.length < MIN_PHOTOS || photos.length > MAX_PHOTOS) {
+  if (photos.length < SCAN_MIN_PHOTOS || photos.length > SCAN_MAX_PHOTOS) {
     return jsonError(
       "INVALID_PHOTO_COUNT",
-      `사진은 ${MIN_PHOTOS}~${MAX_PHOTOS}장이어야 합니다 (현재 ${photos.length}장, 권장 40장).`,
+      `사진은 ${SCAN_MIN_PHOTOS}~${SCAN_MAX_PHOTOS}장이어야 합니다 (현재 ${photos.length}장, 권장 40장).`,
       400,
     );
   }
@@ -118,7 +113,7 @@ export async function POST(request: Request) {
     framePaths.push(objectPath);
   }
 
-  const qualityGrade = scanQualityGrade(framePaths.length);
+  const qualityGrade = calculateScanQualityGrade(framePaths.length);
   const { error: insertError } = await supabase.from("scan_sessions").insert({
     id: scanSessionId,
     user_id: user.id,

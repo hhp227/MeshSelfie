@@ -139,6 +139,90 @@ paths:
           description: 크레딧 부족
         "409":
           description: 진행 중인 동일 조합 job 존재
+  /scans/upload:
+    post:
+      summary: 스캔 입력 업로드 (동영상 1개 또는 4.5MB 이내 소량 사진 multipart)
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                video:
+                  type: string
+                  format: binary
+                photos:
+                  type: array
+                  items:
+                    type: string
+                    format: binary
+      responses:
+        "200":
+          description: scan_sessions 생성 (scanSessionId, qualityGrade 반환)
+        "413":
+          description: 파일 크기 초과 (동영상 45MB, 사진 15MB)
+  /scans/upload-urls:
+    post:
+      summary: 다중 사진 서명 업로드 URL 발급 (브라우저가 Storage에 직접 업로드)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [contentTypes]
+              properties:
+                contentTypes:
+                  type: array
+                  minItems: 15
+                  maxItems: 80
+                  items:
+                    type: string
+                    enum: [image/jpeg, image/png]
+      responses:
+        "200":
+          description: scanSessionId + path/token 목록 (uploadToSignedUrl용)
+  /scans/upload-complete:
+    post:
+      summary: 서명 업로드 완료 확정 — Storage 실물 검증 후 scan_sessions 생성
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [scanSessionId]
+              properties:
+                scanSessionId:
+                  type: string
+                  format: uuid
+      responses:
+        "200":
+          description: scan_sessions 생성 (frameCount, qualityGrade 반환)
+        "409":
+          description: 이미 확정된 세션
+  /scans/generate:
+    post:
+      summary: 스캔 세션으로 photogrammetry 재구성 요청
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [scanSessionId]
+              properties:
+                scanSessionId:
+                  type: string
+                  format: uuid
+      responses:
+        "200":
+          description: 생성 job 생성 (humanMeshId, jobId 반환)
+        "402":
+          description: 크레딧 부족
+        "409":
+          description: 이미 처리 중이거나 완료된 스캔
   /generation-jobs/{jobId}:
     get:
       summary: 생성 job 상태 조회
