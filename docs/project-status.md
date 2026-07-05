@@ -647,3 +647,28 @@ npm run build
   입술 윤곽 뚜렷해짐, 심각한 왜곡 없음. landmark 오차 3.9→4.6e-4(허용 범위).
 - Modal 재배포·E2E 통과. 로드맵 잔여: ③ 귀 형상(귀 검출기), 표정 중립화 옵션,
   albedo 텍스처 활용(현재는 fitting 장치로만 사용).
+
+### v2.0 잔여 작업 일괄 처리 (Modal 지출 한도 차단 중, 2026-07-05)
+
+Modal 카드 등록 실패(해외결제 거절)로 GPU 작업이 막힌 동안 Modal 불필요 작업을
+일괄 진행:
+
+- **사진 다중 업로드**(395adc0): Vercel 4.5MB 바디 한도 때문에 서명 업로드 URL
+  방식 신설 — `/api/scans/upload-urls`(발급) → 브라우저가 1600px JPEG로 축소 후
+  Storage 직접 업로드 → `/api/scans/upload-complete`(실물 검증·세션 확정).
+  프로덕션 실측: 20장 업로드→확정 성공, 중복 409·빈 세션 400 방어 확인.
+- **진행 단계 보고·UI + 썸네일 + 뷰어 보정**(f3cc654): 워커가 COLMAP 산출물
+  (database.db→sparse/→dense/→fused.ply)로 단계를 추론해 status.json에
+  stage/progress 보고, 정점 스플랫 썸네일(CPU, 0.04~1.1s) 생성·서빙.
+  result 페이지에 단계 체크리스트. 뷰어: trimesh 정점색 GLB가 머티리얼 없음 →
+  glTF 기본 metallic 1.0 → 검게 보이는 문제를 로드 시 무광 보정으로 해결.
+  **워커 재배포 필요** (`modal deploy modal_scan_app.py`, healthz 마커
+  `0.3-stages-thumb`) — Modal 한도 해제 후.
+- **스캔 E2E(프로덕션)**: 업로드 72장→scan_sessions(S 등급)→generate까지 성공,
+  워커 호출에서 Modal 429(한도) — 크레딧 미차감·세션 재사용 가능 확인.
+  002 마이그레이션 프로덕션 적용 검증 완료.
+- **캡처 품질 게이트 실측**(로컬 pycolmap): 선풍기 47%(무늬 없음), 택배상자
+  7%(모션 블러 — 셔터 흔들림이 원인, 물체 선택은 적합) → 사진 모드 권장.
+  MIB 스캔부스 턴테이블 영상은 기본 focal prior(1.2×폭)로 7%였으나
+  `default_focal_length_factor=2.2`로 **98%(40/41, 10k점)** — 망원 렌더는
+  automatic_reconstructor 기본값으로는 실패한다는 한계 확인 (폰 광각은 무관).
