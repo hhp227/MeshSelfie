@@ -80,6 +80,7 @@ export async function GET(request: Request, context: RouteContext) {
   }
 
   const job = data as unknown as GenerationJobRow;
+  let providerStage: string | null = null;
 
   if (job.provider_prediction_id && isProviderActive(job.status)) {
     const provider = getAIProviderForJob(job.model_name);
@@ -148,7 +149,14 @@ export async function GET(request: Request, context: RouteContext) {
         });
       } else {
         job.status = providerJob.status;
-        job.progress = providerJob.status === "generating" ? 25 : 5;
+        // 워커가 실제 진행률을 보고하면 사용 (5~85로 제한 — 85 이상은 finalize 몫)
+        const reportedProgress =
+          typeof providerJob.progress === "number"
+            ? Math.min(Math.max(Math.round(providerJob.progress), 5), 85)
+            : null;
+        job.progress =
+          reportedProgress ?? (providerJob.status === "generating" ? 25 : 5);
+        providerStage = providerJob.stage ?? null;
         await Promise.all([
           supabase
             .from("generation_jobs")
@@ -232,6 +240,14 @@ export async function GET(request: Request, context: RouteContext) {
     }
   }
 
+  // 파생 단계: provider가 안 주는 상태(postprocessing/completed)는 여기서 결정
+  const stage =
+    job.status === "completed"
+      ? "complete"
+      : job.status === "postprocessing" || job.status === "thumbnailing"
+        ? "postprocess"
+        : providerStage;
+
   return Response.json({
     data: {
       id: job.id,
@@ -239,6 +255,7 @@ export async function GET(request: Request, context: RouteContext) {
       provider: job.provider,
       modelName: job.model_name,
       status: job.status,
+      stage,
       progress: job.progress,
       qualityGrade: job.quality_grade,
       errorCode: job.error_code,

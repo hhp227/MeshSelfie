@@ -58,7 +58,19 @@ def reconstruct(job_id: str, video_url: str | None, image_urls: list[str]) -> No
         status_path.write_text(json.dumps(state))
         volume.commit()
 
-    write_status({"status": "generating"})
+    # Volume 커밋 비용 때문에 단계 전환 또는 5%p 이상 진행 시에만 기록
+    last_reported = {"stage": None, "progress": -10}
+
+    def on_progress(stage: str, progress: int) -> None:
+        if (
+            stage != last_reported["stage"]
+            or progress - last_reported["progress"] >= 5
+        ):
+            last_reported["stage"] = stage
+            last_reported["progress"] = progress
+            write_status({"status": "generating", "stage": stage, "progress": progress})
+
+    write_status({"status": "generating", "stage": "frames", "progress": 3})
 
     try:
         run_scan(
@@ -66,6 +78,7 @@ def reconstruct(job_id: str, video_url: str | None, image_urls: list[str]) -> No
             video_url=video_url,
             image_urls=image_urls,
             is_canceled=lambda: False,  # 취소는 FunctionCall.cancel()로 처리
+            on_progress=on_progress,
         )
     except PipelineError as error:
         write_status(

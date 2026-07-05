@@ -96,8 +96,17 @@ def _read_status(job_id: str) -> Optional[dict]:
 def job_response(job_id: str, state: dict, base_url: str) -> dict:
     body: dict = {"id": job_id, "status": state.get("status", "generating")}
 
+    if body["status"] in ("queued", "generating"):
+        if state.get("stage"):
+            body["stage"] = state["stage"]
+        if isinstance(state.get("progress"), int):
+            body["progress"] = state["progress"]
+
     if body["status"] == "completed" and (_job_dir(job_id) / "mesh.glb").exists():
         body["output"] = {"glbUrl": f"{base_url}/files/{job_id}/mesh.glb"}
+
+        if (_job_dir(job_id) / "thumbnail.jpg").exists():
+            body["output"]["thumbnailUrl"] = f"{base_url}/files/{job_id}/thumbnail.jpg"
 
     if body["status"] == "failed":
         error = state.get("error") or {}
@@ -199,6 +208,23 @@ def download_glb(job_id: str) -> FileResponse:
     return FileResponse(str(mesh_path), media_type="model/gltf-binary", filename="mesh.glb")
 
 
+@app.get("/files/{job_id}/thumbnail.jpg")
+def download_thumbnail(job_id: str) -> FileResponse:
+    _reload_volume()
+    thumbnail_path = _job_dir(job_id) / "thumbnail.jpg"
+    state = _read_status(job_id)
+
+    if state is None or state.get("status") != "completed" or not thumbnail_path.exists():
+        raise HTTPException(
+            status_code=404,
+            detail={"code": "FILE_NOT_FOUND", "message": "완료된 썸네일이 없습니다."},
+        )
+
+    return FileResponse(
+        str(thumbnail_path), media_type="image/jpeg", filename="thumbnail.jpg"
+    )
+
+
 @app.get("/healthz")
 def healthz() -> dict:
-    return {"ok": True, "model": "photogrammetry-colmap-v1", "version": "0.2-spawn"}
+    return {"ok": True, "model": "photogrammetry-colmap-v1", "version": "0.3-stages-thumb"}

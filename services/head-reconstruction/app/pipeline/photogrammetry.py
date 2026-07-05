@@ -11,6 +11,7 @@
 
 import shutil
 import subprocess
+import time
 from pathlib import Path
 from typing import Callable, Optional
 
@@ -19,6 +20,7 @@ import requests
 import trimesh
 
 from app.jobs import JobCanceled, PipelineError
+from app.pipeline.scan_thumbnail import render_scan_thumbnail
 
 FRAME_FPS = 4
 MAX_FRAMES = 72
@@ -28,7 +30,11 @@ MAX_IMAGE_BYTES = 15 * 1024 * 1024
 FRAME_MAX_WIDTH = 1600
 TARGET_FACES = 200_000
 COLMAP_TIMEOUT_S = 1500
+COLMAP_POLL_S = 3
 DOWNLOAD_TIMEOUT_S = 120
+
+# PRD §9 진행 단계: frames → sparse → dense → mesh → postprocess → thumbnail
+ProgressCallback = Callable[[str, int], None]
 
 
 def run_scan(
@@ -36,16 +42,22 @@ def run_scan(
     video_url: Optional[str],
     image_urls: list[str],
     is_canceled: Callable[[], bool],
+    on_progress: Optional[ProgressCallback] = None,
 ) -> Path:
     def check_canceled() -> None:
         if is_canceled():
             raise JobCanceled()
+
+    def report(stage: str, progress: int) -> None:
+        if on_progress:
+            on_progress(stage, progress)
 
     work_dir.mkdir(parents=True, exist_ok=True)
     frames_dir = work_dir / "frames"
     frames_dir.mkdir(exist_ok=True)
 
     check_canceled()
+    report("frames", 5)
 
     if video_url:
         video_path = _download(video_url, work_dir / "input_video", MAX_VIDEO_BYTES)
@@ -65,17 +77,28 @@ def run_scan(
         )
 
     check_canceled()
+    report("frames", 15)
     workspace = work_dir / "colmap"
     workspace.mkdir(exist_ok=True)
-    _run_colmap(frames_dir, workspace)
+    _run_colmap(frames_dir, workspace, frame_count, report)
 
     check_canceled()
+    report("mesh", 85)
     mesh = _load_reconstructed_mesh(workspace)
+    report("postprocess", 90)
     mesh = _postprocess_mesh(mesh)
 
     output_path = work_dir / "mesh.glb"
     glb_bytes = mesh.export(file_type="glb")
     output_path.write_bytes(glb_bytes)
+
+    # 썸네일 실패는 치명적이지 않다 — 메쉬는 이미 저장됐다
+    report("thumbnail", 96)
+    try:
+        (work_dir / "thumbnail.jpg").write_bytes(render_scan_thumbnail(mesh))
+    except Exception:  # noqa: BLE001
+        pass
+
     return output_path
 
 
@@ -132,8 +155,18 @@ def _extract_frames(video_path: Path, frames_dir: Path) -> None:
         ) from error
 
 
-def _run_colmap(frames_dir: Path, workspace: Path) -> None:
-    """COLMAP automatic_reconstructor: sparse + dense + poisson meshing."""
+def _run_colmap(
+    frames_dir: Path,
+    workspace: Path,
+    frame_count: int,
+    report: ProgressCallback,
+) -> None:
+    """COLMAP automatic_reconstructor: sparse + dense + poisson meshing.
+
+    단일 subprocess라 내부 단계를 직접 알 수 없으므로, 작업 디렉터리에
+    생기는 산출물(database.db → sparse/ → dense/ → fused.ply)로 단계를
+    추론해 진행률을 보고한다 (PRD §9).
+    """
     command = [
         "colmap",
         "automatic_reconstructor",
@@ -151,20 +184,56 @@ def _run_colmap(frames_dir: Path, workspace: Path) -> None:
         "1",
     ]
 
-    try:
-        result = subprocess.run(
-            command, capture_output=True, timeout=COLMAP_TIMEOUT_S, text=True
-        )
-    except subprocess.TimeoutExpired as error:
-        raise PipelineError(
-            "RECONSTRUCTION_TIMEOUT", "3D 재구성 시간이 초과됐습니다."
-        ) from error
+    log_path = workspace / "colmap.log"
+    started = time.monotonic()
 
-    if result.returncode != 0:
+    with log_path.open("w") as log_file:
+        process = subprocess.Popen(command, stdout=log_file, stderr=subprocess.STDOUT)
+
+        try:
+            while process.poll() is None:
+                if time.monotonic() - started > COLMAP_TIMEOUT_S:
+                    process.kill()
+                    process.wait(timeout=30)
+                    raise PipelineError(
+                        "RECONSTRUCTION_TIMEOUT", "3D 재구성 시간이 초과됐습니다."
+                    )
+
+                report(*infer_colmap_progress(workspace, frame_count))
+                time.sleep(COLMAP_POLL_S)
+        finally:
+            if process.poll() is None:
+                process.kill()
+
+    if process.returncode != 0:
         raise PipelineError(
             "RECONSTRUCTION_FAILED",
             "3D 재구성에 실패했습니다. 프레임 간 겹침이 충분한지 확인해주세요.",
         )
+
+
+def infer_colmap_progress(workspace: Path, frame_count: int) -> tuple[str, int]:
+    """COLMAP 산출물 파일로 현재 단계·진행률(20~80)을 추론한다."""
+    if sorted(workspace.glob("dense/*/fused.ply")):
+        return ("mesh", 80)
+
+    depth_maps = list(workspace.glob("dense/*/stereo/depth_maps/*"))
+    if depth_maps:
+        # photometric + geometric 두 패스라 프레임 수의 2배까지 생성된다
+        done = min(len(depth_maps) / max(frame_count * 2, 1), 1.0)
+        return ("dense", 50 + int(done * 25))
+
+    if sorted(workspace.glob("dense/*")):
+        return ("dense", 48)
+
+    sparse_dir = workspace / "sparse"
+    if sparse_dir.exists() and any(sparse_dir.iterdir()):
+        return ("sparse", 35)
+
+    if (workspace / "database.db").exists():
+        return ("sparse", 22)
+
+    return ("sparse", 20)
 
 
 def _load_reconstructed_mesh(workspace: Path) -> trimesh.Trimesh:

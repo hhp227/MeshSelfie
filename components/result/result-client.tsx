@@ -40,9 +40,31 @@ type DownloadResponse = {
 
 const FINAL_STATUSES = new Set(["completed", "failed", "canceled", "deleted"]);
 
+const SCAN_MODEL_NAME = "photogrammetry-colmap-v1";
+
+/** PRD §9 진행 단계 — 워커 stage 값 → 표시 순서/라벨 */
+const SCAN_STAGES: Array<{ key: string; label: string }> = [
+  { key: "frames", label: "프레임 준비" },
+  { key: "sparse", label: "Sparse 재구성" },
+  { key: "dense", label: "Dense 재구성" },
+  { key: "mesh", label: "Mesh 생성" },
+  { key: "postprocess", label: "후처리" },
+  { key: "thumbnail", label: "썸네일" },
+  { key: "complete", label: "완료" },
+];
+
+type JobStatusResponse = {
+  data: {
+    status: string;
+    stage: string | null;
+    progress: number | null;
+  };
+};
+
 export function ResultClient({ meshId }: { meshId: string }) {
   const supabase = useMemo(() => createBrowserSupabaseClient(), []);
   const [mesh, setMesh] = useState<MeshDetailResponse["data"] | null>(null);
+  const [jobStage, setJobStage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [downloading, setDownloading] = useState(false);
@@ -106,6 +128,10 @@ export function ResultClient({ meshId }: { meshId: string }) {
 
         if (statusResult.ok) {
           setError(null);
+
+          const statusJson = (await statusResult.json()) as JobStatusResponse;
+          setJobStage(statusJson.data.stage ?? null);
+
           const refreshedResult = await fetch(`/api/meshes/${meshId}`, {
             headers: {
               Authorization: `Bearer ${token}`,
@@ -239,6 +265,13 @@ export function ResultClient({ meshId }: { meshId: string }) {
           <InfoRow label="생성일" value={new Date(mesh.createdAt).toLocaleString()} />
         </dl>
 
+        {mesh.latestJob?.modelName === SCAN_MODEL_NAME &&
+        !["failed", "canceled", "deleted"].includes(mesh.status) ? (
+          <ScanStageList
+            stage={mesh.status === "completed" ? "complete" : jobStage}
+          />
+        ) : null}
+
         {mesh.latestJob?.errorMessage ? (
           <p className="mt-5 rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">
             {mesh.latestJob.errorMessage}
@@ -260,6 +293,60 @@ export function ResultClient({ meshId }: { meshId: string }) {
           {downloading ? "URL 발급 중..." : "GLB 다운로드"}
         </button>
       </aside>
+    </div>
+  );
+}
+
+function ScanStageList({ stage }: { stage: string | null }) {
+  const currentIndex = stage
+    ? SCAN_STAGES.findIndex((item) => item.key === stage)
+    : -1;
+
+  return (
+    <div className="mt-5 rounded-md border border-zinc-100 bg-zinc-50 p-4">
+      <p className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
+        Photogrammetry 진행 단계
+      </p>
+      <ol className="mt-3 grid gap-2 text-sm">
+        {SCAN_STAGES.map((item, index) => {
+          const state =
+            currentIndex < 0
+              ? "pending"
+              : index < currentIndex
+                ? "done"
+                : index === currentIndex
+                  ? "current"
+                  : "pending";
+
+          return (
+            <li key={item.key} className="flex items-center gap-2.5">
+              <span
+                className={`grid h-5 w-5 place-items-center rounded-full text-[10px] font-bold ${
+                  state === "done"
+                    ? "bg-teal-600 text-white"
+                    : state === "current"
+                      ? "bg-zinc-950 text-white"
+                      : "bg-zinc-200 text-zinc-500"
+                }`}
+              >
+                {state === "done" ? "✓" : index + 1}
+              </span>
+              <span
+                className={
+                  state === "current"
+                    ? "font-semibold text-zinc-950"
+                    : state === "done"
+                      ? "text-zinc-600"
+                      : "text-zinc-400"
+                }
+              >
+                {item.label}
+                {state === "current" && item.key !== "complete" ? " 중..." : ""}
+              </span>
+            </li>
+          );
+        })}
+      </ol>
     </div>
   );
 }

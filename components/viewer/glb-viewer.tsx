@@ -145,6 +145,21 @@ export function GlbViewer({ modelUrl, onSignedUrlExpired }: GlbViewerProps) {
           return;
         }
 
+        // 정점색 GLB(photogrammetry 스캔)는 머티리얼 없이 내보내져 glTF 기본값
+        // (metallic 1.0)이 적용된다 — 환경맵 없는 이 뷰어에서는 검게 보이므로
+        // 무광으로 보정한다 (텍스처 있는 머티리얼은 건드리지 않는다)
+        gltf.scene.traverse((object) => {
+          if (
+            object instanceof THREE.Mesh &&
+            object.geometry.attributes.color &&
+            object.material instanceof THREE.MeshStandardMaterial &&
+            !object.material.map
+          ) {
+            object.material.metalness = 0;
+            object.material.roughness = 0.95;
+          }
+        });
+
         loadedScene = gltf.scene;
         scene.add(gltf.scene);
         frameModel(gltf.scene, camera, controls);

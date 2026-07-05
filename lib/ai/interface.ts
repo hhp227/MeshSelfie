@@ -24,6 +24,10 @@ export type ProviderJobResult = {
 
 export type ProviderJobStatus = {
   status: "queued" | "generating" | "completed" | "failed" | "canceled";
+  /** PRD §9 진행 단계 (frames|sparse|dense|mesh|postprocess|thumbnail) — 지원 provider만 */
+  stage?: string;
+  /** provider가 보고한 0~100 진행률 — 지원 provider만 */
+  progress?: number;
   outputUrl?: string;
   thumbnailUrl?: string;
   errorCode?: string;

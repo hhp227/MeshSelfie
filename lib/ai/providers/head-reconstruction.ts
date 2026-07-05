@@ -7,6 +7,8 @@ import type {
 type WorkerJob = {
   id?: string;
   status?: string;
+  stage?: string;
+  progress?: number;
   output?: {
     glbUrl?: string;
     thumbnailUrl?: string;
@@ -83,6 +85,8 @@ export class HeadReconstructionProvider implements AIProvider {
 
     return {
       status: normalizeStatus(job.status),
+      stage: typeof job.stage === "string" ? job.stage : undefined,
+      progress: typeof job.progress === "number" ? job.progress : undefined,
       outputUrl: job.output?.glbUrl,
       thumbnailUrl: job.output?.thumbnailUrl,
       errorCode: job.error?.code,
