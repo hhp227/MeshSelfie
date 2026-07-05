@@ -324,11 +324,11 @@ paths:
           description: 아직 완료되지 않음
   /gallery:
     get:
-      summary: Featured Mesh Gallery
+      summary: 공개 갤러리 — 완료 메쉬는 기본 공개, featured 우선 정렬
       security: []
       responses:
         "200":
-          description: Featured 목록
+          description: 공개 메쉬 목록 (썸네일 서명 URL·표시이름 포함, user_id 미노출)
   /admin/models:
     get:
       summary: 관리자 모델 검색
