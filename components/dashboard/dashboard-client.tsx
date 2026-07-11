@@ -144,12 +144,12 @@ export function DashboardClient() {
   }
 
   if (loading) {
-    return <p className="text-sm text-zinc-600">대시보드를 불러오는 중입니다.</p>;
+    return <p className="text-sm text-ink-dim">대시보드를 불러오는 중입니다.</p>;
   }
 
   if (error) {
     return (
-      <div className="rounded-md border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
+      <div className="rounded-md border border-kiln-600/30 bg-kiln-100 p-4 text-sm text-kiln-700">
         {error}{" "}
         <Link href="/login" className="font-semibold underline">
           로그인으로 이동
@@ -167,31 +167,31 @@ export function DashboardClient() {
           ["남은 크레딧", profile?.remainingCredits ?? 0],
           ["사용 크레딧", profile?.usedCredits ?? 0],
         ].map(([label, value]) => (
-          <div key={label} className="rounded-lg border border-zinc-200 bg-white p-4">
-            <p className="text-sm text-zinc-500">{label}</p>
-            <p className="mt-2 text-2xl font-semibold text-zinc-950">{value}</p>
+          <div key={label} className="rounded-md border border-hairline bg-clay-50 p-4">
+            <p className="text-sm text-ink-dim">{label}</p>
+            <p className="mt-2 font-mono text-2xl font-bold text-ink">{value}</p>
           </div>
         ))}
       </section>
 
-      <section className="rounded-lg border border-zinc-200 bg-white">
-        <div className="flex items-center justify-between border-b border-zinc-200 p-4">
+      <section className="rounded-md border border-hairline bg-clay-50">
+        <div className="flex items-center justify-between border-b border-hairline p-4">
           <div>
-            <h2 className="text-base font-semibold text-zinc-950">생성 모델</h2>
-            <p className="mt-1 text-sm text-zinc-500">{profile?.email}</p>
+            <h2 className="text-base font-bold text-ink">생성 모델</h2>
+            <p className="mt-1 text-sm text-ink-dim">{profile?.email}</p>
           </div>
           <div className="flex items-center gap-2">
             {profile?.role === "admin" ? (
               <Link
                 href="/admin"
-                className="rounded-md border border-zinc-300 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50"
+                className="rounded-md border border-hairline-strong px-4 py-2 text-sm font-semibold text-ink hover:bg-clay-100"
               >
                 관리자 모델 업로드
               </Link>
             ) : null}
             <Link
               href="/upload"
-              className="rounded-md bg-zinc-950 px-4 py-2 text-sm font-semibold text-white hover:bg-zinc-800"
+              className="rounded-md bg-celadon-600 px-4 py-2 text-sm font-semibold text-clay-50 hover:bg-celadon-700"
             >
               새 모델 생성
             </Link>
@@ -199,37 +199,37 @@ export function DashboardClient() {
         </div>
 
         {actionError ? (
-          <p className="m-4 rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+          <p className="m-4 rounded-md border border-kiln-600/30 bg-kiln-100 p-3 text-sm text-kiln-700">
             {actionError}
           </p>
         ) : null}
 
         {avatars.length === 0 ? (
-          <div className="p-8 text-center text-sm text-zinc-500">
+          <div className="p-8 text-center text-sm text-ink-dim">
             아직 생성된 3D 모델이 없습니다.
           </div>
         ) : (
-          <div className="divide-y divide-zinc-200">
+          <div className="divide-y divide-hairline">
             {avatars.map((avatar) => (
               <div
                 key={avatar.id}
-                className="grid items-center gap-3 p-4 hover:bg-zinc-50 sm:grid-cols-[minmax(0,1fr)_100px_80px_70px_110px_72px]"
+                className="grid items-center gap-3 p-4 hover:bg-clay-100 sm:grid-cols-[minmax(0,1fr)_100px_80px_70px_110px_72px]"
               >
                 <Link
                   href={`/result/${avatar.id}`}
-                  className="truncate font-medium text-zinc-950 hover:underline"
+                  className="truncate font-medium text-ink hover:underline"
                 >
                   {avatar.title ?? "Untitled Mesh"}
                 </Link>
-                <span className="text-sm text-zinc-600">{avatar.status}</span>
-                <span className="text-sm text-zinc-600">{avatar.inputImageCount}장</span>
-                <span className="text-sm text-zinc-600">{avatar.qualityGrade}</span>
-                <span className="text-sm text-zinc-600">{avatar.modelSource}</span>
+                <span className="text-sm text-ink-dim">{avatar.status}</span>
+                <span className="text-sm text-ink-dim">{avatar.inputImageCount}장</span>
+                <span className="text-sm text-ink-dim">{avatar.qualityGrade}</span>
+                <span className="text-sm text-ink-dim">{avatar.modelSource}</span>
                 <button
                   type="button"
                   onClick={() => void handleDelete(avatar)}
                   disabled={deletingId !== null}
-                  className="rounded-md border border-red-200 px-3 py-2 text-sm font-semibold text-red-700 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
+                  className="rounded-md border border-kiln-600/30 px-3 py-2 text-sm font-semibold text-kiln-700 hover:bg-kiln-100 disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   {deletingId === avatar.id ? "삭제 중" : "삭제"}
                 </button>

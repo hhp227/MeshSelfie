@@ -45,7 +45,7 @@ export function AuthenticatedPage({ children }: { children: ReactNode }) {
 
   if (configError) {
     return (
-      <main className="flex min-h-screen items-center justify-center bg-stone-50 px-6 text-sm text-red-700">
+      <main className="flex min-h-screen items-center justify-center bg-clay-100 px-6 text-sm text-kiln-700">
         Supabase 환경 변수가 설정되지 않았습니다.
       </main>
     );
@@ -53,7 +53,7 @@ export function AuthenticatedPage({ children }: { children: ReactNode }) {
 
   if (!ready) {
     return (
-      <main className="flex min-h-screen items-center justify-center bg-stone-50 px-6 text-sm text-zinc-600">
+      <main className="flex min-h-screen items-center justify-center bg-clay-100 px-6 text-sm text-ink-dim">
         세션을 확인하는 중입니다.
       </main>
     );

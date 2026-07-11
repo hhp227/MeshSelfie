@@ -155,12 +155,12 @@ export function AdminModelUploadForm() {
   }
 
   if (authorized === null) {
-    return <p className="text-sm text-zinc-500">관리자 권한을 확인하는 중입니다.</p>;
+    return <p className="text-sm text-ink-dim">관리자 권한을 확인하는 중입니다.</p>;
   }
 
   if (!authorized) {
     return (
-      <p className="rounded-md border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+      <p className="rounded-md border border-kiln-600/30 bg-kiln-100 p-4 text-sm text-kiln-700">
         관리자 권한이 필요합니다.
       </p>
     );
@@ -169,7 +169,7 @@ export function AdminModelUploadForm() {
   return (
     <form onSubmit={handleSubmit} className="grid gap-5">
       <fieldset className="grid gap-3">
-        <legend className="text-sm font-semibold text-zinc-950">업로드 대상</legend>
+        <legend className="text-sm font-semibold text-ink">업로드 대상</legend>
         <div className="grid gap-3 sm:grid-cols-2">
           <TargetButton
             selected={target === "user_mesh"}
@@ -193,7 +193,7 @@ export function AdminModelUploadForm() {
               value={humanMeshId}
               onChange={(event) => setHumanMeshId(event.target.value)}
               placeholder="교체할 mesh UUID"
-              className="h-11 w-full rounded-md border border-zinc-300 px-3 text-sm"
+              className="h-11 w-full rounded-md border border-hairline-strong bg-white/60 px-3 text-sm"
               required
             />
           </Field>
@@ -202,12 +202,12 @@ export function AdminModelUploadForm() {
               value={targetUserId}
               onChange={(event) => setTargetUserId(event.target.value)}
               placeholder="사용자 UUID"
-              className="h-11 w-full rounded-md border border-zinc-300 px-3 text-sm"
+              className="h-11 w-full rounded-md border border-hairline-strong bg-white/60 px-3 text-sm"
             />
           </Field>
         </div>
       ) : (
-        <p className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+        <p className="rounded-md border border-kiln-600/30 bg-kiln-100 p-3 text-sm text-kiln-700">
           샘플 파일과 감사 이력이 저장됩니다. Gallery 노출 연결은 별도 기능입니다.
         </p>
       )}
@@ -218,7 +218,7 @@ export function AdminModelUploadForm() {
             type="file"
             accept=".glb,.gltf,model/gltf-binary,model/gltf+json"
             onChange={(event) => setModelFile(event.target.files?.[0] ?? null)}
-            className="block w-full rounded-md border border-zinc-300 p-2 text-sm"
+            className="block w-full rounded-md border border-hairline-strong bg-white/60 p-2 text-sm"
             required
           />
         </Field>
@@ -228,7 +228,7 @@ export function AdminModelUploadForm() {
             value={target === "sample" ? "sample" : purpose}
             onChange={(event) => setPurpose(event.target.value as UploadPurpose)}
             disabled={target === "sample"}
-            className="h-11 w-full rounded-md border border-zinc-300 bg-white px-3 text-sm disabled:bg-zinc-100"
+            className="h-11 w-full rounded-md border border-hairline-strong bg-white/60 px-3 text-sm disabled:bg-clay-200"
           >
             <option value="replace_failed">AI 실패 대응</option>
             <option value="external_tool">외부 툴 결과</option>
@@ -245,18 +245,18 @@ export function AdminModelUploadForm() {
           onChange={(event) => setReason(event.target.value)}
           maxLength={1000}
           rows={4}
-          className="w-full rounded-md border border-zinc-300 p-3 text-sm"
+          className="w-full rounded-md border border-hairline-strong bg-white/60 p-3 text-sm"
         />
       </Field>
 
       {error ? (
-        <p className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+        <p className="rounded-md border border-kiln-600/30 bg-kiln-100 p-3 text-sm text-kiln-700">
           {error}
         </p>
       ) : null}
 
       {success ? (
-        <div className="rounded-md border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800">
+        <div className="rounded-md border border-celadon-400/50 bg-celadon-100 p-4 text-sm text-celadon-700">
           <p className="font-semibold">모델 업로드가 완료되었습니다.</p>
           <p className="mt-1 break-all">Storage: {success.modelObjectPath}</p>
           <p className="mt-1 break-all">Audit ID: {success.adminUploadId}</p>
@@ -267,7 +267,7 @@ export function AdminModelUploadForm() {
         <button
           type="submit"
           disabled={pending}
-          className="h-11 rounded-md bg-zinc-950 px-5 text-sm font-semibold text-white hover:bg-zinc-800 disabled:cursor-not-allowed disabled:bg-zinc-400"
+          className="h-11 rounded-md bg-celadon-600 px-5 text-sm font-semibold text-clay-50 hover:bg-celadon-700 disabled:cursor-not-allowed disabled:bg-clay-400"
         >
           {pending ? "업로드 중..." : "관리자 모델 업로드"}
         </button>
@@ -292,11 +292,11 @@ function TargetButton({
       type="button"
       onClick={onClick}
       className={`rounded-lg border p-4 text-left ${
-        selected ? "border-zinc-950 bg-zinc-50" : "border-zinc-200 bg-white"
+        selected ? "border-celadon-600 bg-celadon-100/50" : "border-hairline bg-clay-50"
       }`}
     >
-      <span className="block text-sm font-semibold text-zinc-950">{title}</span>
-      <span className="mt-1 block text-xs leading-5 text-zinc-500">{description}</span>
+      <span className="block text-sm font-semibold text-ink">{title}</span>
+      <span className="mt-1 block text-xs leading-5 text-ink-dim">{description}</span>
     </button>
   );
 }
@@ -314,11 +314,11 @@ function Field({
 }) {
   return (
     <label className="grid gap-2 text-sm">
-      <span className="font-medium text-zinc-800">
-        {label} {required ? <span className="text-red-600">*</span> : null}
+      <span className="font-medium text-ink">
+        {label} {required ? <span className="text-kiln-600">*</span> : null}
       </span>
       {children}
-      {hint ? <span className="text-xs text-zinc-500">{hint}</span> : null}
+      {hint ? <span className="text-xs text-ink-dim">{hint}</span> : null}
     </label>
   );
 }

@@ -366,7 +366,7 @@ export function UploadForm() {
 
   return (
     <form onSubmit={handleSubmit} className="grid gap-5">
-      <div className="grid grid-cols-2 rounded-lg border border-zinc-200 bg-white p-1 text-sm font-semibold">
+      <div className="grid grid-cols-2 rounded-md border border-hairline bg-clay-50 p-1 text-sm font-semibold">
         {(
           [
             ["photos", "사진 3장 (AI 생성)"],
@@ -378,7 +378,7 @@ export function UploadForm() {
             type="button"
             onClick={() => setMode(value)}
             className={`rounded-md px-3 py-2.5 ${
-              mode === value ? "bg-zinc-950 text-white" : "text-zinc-600 hover:bg-zinc-100"
+              mode === value ? "bg-celadon-600 text-clay-50" : "text-ink-dim hover:bg-clay-100"
             }`}
           >
             {label}
@@ -388,7 +388,7 @@ export function UploadForm() {
 
       {mode === "scan" ? (
         <>
-          <div className="grid grid-cols-2 rounded-lg border border-zinc-200 bg-white p-1 text-sm font-medium">
+          <div className="grid grid-cols-2 rounded-md border border-hairline bg-clay-50 p-1 text-sm font-medium">
             {(
               [
                 ["photoset", "사진 여러 장 (권장)"],
@@ -401,8 +401,8 @@ export function UploadForm() {
                 onClick={() => setScanInputKind(value)}
                 className={`rounded-md px-3 py-2 ${
                   scanInputKind === value
-                    ? "bg-teal-700 text-white"
-                    : "text-zinc-600 hover:bg-zinc-100"
+                    ? "bg-celadon-600 text-clay-50"
+                    : "text-ink-dim hover:bg-clay-100"
                 }`}
               >
                 {label}
@@ -410,16 +410,16 @@ export function UploadForm() {
             ))}
           </div>
 
-          <div className="rounded-lg border border-teal-200 bg-teal-50 p-4 text-sm text-teal-950">
+          <div className="rounded-md border border-celadon-400/40 bg-celadon-100 p-4 text-sm text-ink">
             <p className="font-semibold">스캔 촬영 기준 (품질의 90%는 촬영이 결정합니다)</p>
             {scanInputKind === "photoset" ? (
-              <ul className="mt-1 list-disc pl-5 leading-6 text-teal-900">
+              <ul className="mt-1 list-disc pl-5 leading-6 text-celadon-700">
                 <li>15~80장 (40장 이상이면 S 등급) · JPG/PNG</li>
                 <li>피사체 주위를 돌며 한 걸음마다 멈춰서 한 장씩 — 흔들림 없는 사진이 핵심</li>
                 <li>표면에 무늬·질감이 있는 피사체, 균일한 밝은 조명, 모든 각도에서 겹치게</li>
               </ul>
             ) : (
-              <ul className="mt-1 list-disc pl-5 leading-6 text-teal-900">
+              <ul className="mt-1 list-disc pl-5 leading-6 text-celadon-700">
                 <li>10~20초, 45MB 이하 MP4/MOV</li>
                 <li>피사체는 완전 정지(표정·시선 고정), 카메라가 얼굴 주위로 천천히 반원 이동</li>
                 <li>균일한 밝은 조명, 흔들림(블러) 없이, 얼굴이 화면의 절반 이상</li>
@@ -428,12 +428,12 @@ export function UploadForm() {
           </div>
 
           {scanInputKind === "photoset" ? (
-            <div className="rounded-lg border border-zinc-200 bg-white p-5">
+            <div className="rounded-md border border-hairline bg-clay-50 p-5">
               <div className="flex items-center justify-between">
-                <h2 className="font-semibold text-zinc-950">스캔 사진 (15~80장)</h2>
-                <span className="rounded-md bg-zinc-100 px-2 py-1 text-xs text-zinc-600">필수</span>
+                <h2 className="font-semibold text-ink">스캔 사진 (15~80장)</h2>
+                <span className="rounded-md bg-clay-200 px-2 py-1 text-xs text-ink-dim">필수</span>
               </div>
-              <label className="mt-4 flex aspect-[3/1] cursor-pointer items-center justify-center rounded-md border border-dashed border-zinc-300 bg-zinc-50 px-4 text-center text-sm text-zinc-500 hover:bg-zinc-100">
+              <label className="mt-4 flex aspect-[3/1] cursor-pointer items-center justify-center rounded-md border border-dashed border-hairline-strong bg-clay-100/60 px-4 text-center text-sm text-ink-dim hover:bg-clay-100">
                 <input
                   type="file"
                   accept="image/jpeg,image/png"
@@ -451,12 +451,12 @@ export function UploadForm() {
               </label>
             </div>
           ) : (
-            <div className="rounded-lg border border-zinc-200 bg-white p-5">
+            <div className="rounded-md border border-hairline bg-clay-50 p-5">
               <div className="flex items-center justify-between">
-                <h2 className="font-semibold text-zinc-950">스캔 동영상</h2>
-                <span className="rounded-md bg-zinc-100 px-2 py-1 text-xs text-zinc-600">필수</span>
+                <h2 className="font-semibold text-ink">스캔 동영상</h2>
+                <span className="rounded-md bg-clay-200 px-2 py-1 text-xs text-ink-dim">필수</span>
               </div>
-              <label className="mt-4 flex aspect-[3/1] cursor-pointer items-center justify-center rounded-md border border-dashed border-zinc-300 bg-zinc-50 px-4 text-center text-sm text-zinc-500 hover:bg-zinc-100">
+              <label className="mt-4 flex aspect-[3/1] cursor-pointer items-center justify-center rounded-md border border-dashed border-hairline-strong bg-clay-100/60 px-4 text-center text-sm text-ink-dim hover:bg-clay-100">
                 <input
                   type="file"
                   accept="video/mp4,video/quicktime"
@@ -471,9 +471,9 @@ export function UploadForm() {
           )}
         </>
       ) : (
-        <div className="rounded-lg border border-blue-200 bg-blue-50 p-4 text-sm text-blue-950">
+        <div className="rounded-md border border-axis-z/30 bg-axis-z/10 p-4 text-sm text-ink">
           <p className="font-semibold">고정밀 얼굴·목 복원 촬영 기준</p>
-          <p className="mt-1 leading-6 text-blue-900">
+          <p className="mt-1 leading-6 text-ink-dim">
             가로·세로 최소 512px, 권장 1024px 이상 · 머리와 목 중심 · 동일한 표정과
             조명 · 머리카락이 귀, 턱선, 목을 가리지 않는 사진을 사용해주세요.
           </p>
@@ -508,13 +508,13 @@ export function UploadForm() {
       </div>
 
       {message ? (
-        <p className="rounded-md border border-zinc-200 bg-white px-4 py-3 text-sm text-zinc-600">
+        <p className="rounded-md border border-hairline bg-clay-50 px-4 py-3 text-sm text-ink-dim">
           {message}
         </p>
       ) : null}
 
       {error ? (
-        <p className="rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+        <p className="rounded-md border border-kiln-600/30 bg-kiln-100 px-4 py-3 text-sm text-kiln-700">
           {error}
         </p>
       ) : null}
@@ -523,7 +523,7 @@ export function UploadForm() {
         <button
           type="submit"
           disabled={pending}
-          className="h-11 rounded-md bg-zinc-950 px-5 text-sm font-semibold text-white hover:bg-zinc-800 disabled:cursor-not-allowed disabled:bg-zinc-400"
+          className="h-11 rounded-md bg-celadon-600 px-5 text-sm font-semibold text-clay-50 hover:bg-celadon-700 disabled:cursor-not-allowed disabled:bg-clay-400"
         >
           {pending
             ? "처리 중..."
@@ -554,15 +554,15 @@ function UploadSlot({
   onDirectionChange?: (direction: Direction) => void;
 }) {
   return (
-    <div className="rounded-lg border border-zinc-200 bg-white p-5">
+    <div className="rounded-md border border-hairline bg-clay-50 p-5">
       <div className="flex items-center justify-between">
-        <h2 className="font-semibold text-zinc-950">{title}</h2>
-        <span className="rounded-md bg-zinc-100 px-2 py-1 text-xs text-zinc-600">
+        <h2 className="font-semibold text-ink">{title}</h2>
+        <span className="rounded-md bg-clay-200 px-2 py-1 text-xs text-ink-dim">
           {requiredLabel}
         </span>
       </div>
-      <p className="mt-2 min-h-10 text-sm leading-5 text-zinc-500">{description}</p>
-      <label className="mt-4 flex aspect-[4/3] cursor-pointer items-center justify-center rounded-md border border-dashed border-zinc-300 bg-zinc-50 px-4 text-center text-sm text-zinc-500 hover:bg-zinc-100">
+      <p className="mt-2 min-h-10 text-sm leading-5 text-ink-dim">{description}</p>
+      <label className="mt-4 flex aspect-[4/3] cursor-pointer items-center justify-center rounded-md border border-dashed border-hairline-strong bg-clay-100/60 px-4 text-center text-sm text-ink-dim hover:bg-clay-100">
         <input
           type="file"
           accept="image/jpeg,image/png"
@@ -573,7 +573,7 @@ function UploadSlot({
       </label>
 
       {direction && onDirectionChange ? (
-        <div className="mt-4 grid grid-cols-2 rounded-md border border-zinc-200 p-1 text-sm">
+        <div className="mt-4 grid grid-cols-2 rounded-md border border-hairline p-1 text-sm">
           {(["left", "right"] as const).map((option) => (
             <button
               key={option}
@@ -581,8 +581,8 @@ function UploadSlot({
               onClick={() => onDirectionChange(option)}
               className={`rounded px-3 py-2 font-medium ${
                 direction === option
-                  ? "bg-zinc-950 text-white"
-                  : "text-zinc-600 hover:bg-zinc-100"
+                  ? "bg-celadon-600 text-clay-50"
+                  : "text-ink-dim hover:bg-clay-100"
               }`}
             >
               {option === "left" ? "왼쪽" : "오른쪽"}

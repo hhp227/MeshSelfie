@@ -208,7 +208,7 @@ export function ResultClient({ meshId }: { meshId: string }) {
 
   if (loading) {
     return (
-      <section className="rounded-lg border border-zinc-200 bg-white p-6 text-sm text-zinc-600">
+      <section className="rounded-md border border-hairline bg-clay-50 p-6 text-sm text-ink-dim">
         모델 상태를 불러오는 중입니다.
       </section>
     );
@@ -216,7 +216,7 @@ export function ResultClient({ meshId }: { meshId: string }) {
 
   if (error && !mesh) {
     return (
-      <section className="rounded-lg border border-amber-200 bg-amber-50 p-6 text-sm text-amber-800">
+      <section className="rounded-md border border-kiln-600/30 bg-kiln-100 p-6 text-sm text-kiln-700">
         {error}{" "}
         <Link href="/login" className="font-semibold underline">
           로그인으로 이동
@@ -231,7 +231,7 @@ export function ResultClient({ meshId }: { meshId: string }) {
 
   return (
     <div className="grid gap-6 lg:grid-cols-[1fr_360px]">
-      <section className="grid min-h-[460px] place-items-center rounded-lg border border-zinc-200 bg-white p-3">
+      <section className="grid min-h-[460px] place-items-center rounded-md border border-hairline bg-clay-50 p-3">
         {mesh.modelSignedUrl ? (
           <GlbViewer
             modelUrl={mesh.modelSignedUrl}
@@ -239,10 +239,10 @@ export function ResultClient({ meshId }: { meshId: string }) {
           />
         ) : (
           <div className="text-center">
-            <p className="text-sm font-semibold text-zinc-950">
+            <p className="text-sm font-semibold text-ink">
               {mesh.status === "failed" ? "모델 생성 실패" : "모델 생성 진행 중"}
             </p>
-            <p className="mt-2 text-sm text-zinc-500">
+            <p className="mt-2 text-sm text-ink-dim">
               {mesh.status === "failed"
                 ? "오른쪽 오류 내용을 확인한 뒤 다시 업로드해주세요."
                 : "입력 이미지를 바탕으로 GLB 모델을 생성하고 저장하고 있습니다."}
@@ -251,8 +251,8 @@ export function ResultClient({ meshId }: { meshId: string }) {
         )}
       </section>
 
-      <aside className="rounded-lg border border-zinc-200 bg-white p-5">
-        <h2 className="text-base font-semibold text-zinc-950">
+      <aside className="rounded-md border border-hairline bg-clay-50 p-5">
+        <h2 className="text-base font-bold text-ink">
           {mesh.title ?? "Photorealistic Human Mesh"}
         </h2>
         <dl className="mt-5 grid gap-3 text-sm">
@@ -273,13 +273,13 @@ export function ResultClient({ meshId }: { meshId: string }) {
         ) : null}
 
         {mesh.latestJob?.errorMessage ? (
-          <p className="mt-5 rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+          <p className="mt-5 rounded-md border border-kiln-600/30 bg-kiln-100 p-3 text-sm text-kiln-700">
             {mesh.latestJob.errorMessage}
           </p>
         ) : null}
 
         {error ? (
-          <p className="mt-5 rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+          <p className="mt-5 rounded-md border border-kiln-600/30 bg-kiln-100 p-3 text-sm text-kiln-700">
             {error}
           </p>
         ) : null}
@@ -288,7 +288,7 @@ export function ResultClient({ meshId }: { meshId: string }) {
           type="button"
           onClick={handleDownload}
           disabled={mesh.status !== "completed" || downloading}
-          className="mt-6 h-11 w-full rounded-md bg-zinc-950 px-4 text-sm font-semibold text-white hover:bg-zinc-800 disabled:cursor-not-allowed disabled:bg-zinc-400"
+          className="mt-6 h-11 w-full rounded-md bg-celadon-600 px-4 text-sm font-semibold text-clay-50 hover:bg-celadon-700 disabled:cursor-not-allowed disabled:bg-clay-400"
         >
           {downloading ? "URL 발급 중..." : "GLB 다운로드"}
         </button>
@@ -303,8 +303,8 @@ function ScanStageList({ stage }: { stage: string | null }) {
     : -1;
 
   return (
-    <div className="mt-5 rounded-md border border-zinc-100 bg-zinc-50 p-4">
-      <p className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
+    <div className="mt-5 rounded-md border border-hairline bg-clay-100/60 p-4">
+      <p className="font-mono text-xs font-medium uppercase tracking-wide text-ink-dim">
         Photogrammetry 진행 단계
       </p>
       <ol className="mt-3 grid gap-2 text-sm">
@@ -323,10 +323,10 @@ function ScanStageList({ stage }: { stage: string | null }) {
               <span
                 className={`grid h-5 w-5 place-items-center rounded-full text-[10px] font-bold ${
                   state === "done"
-                    ? "bg-teal-600 text-white"
+                    ? "bg-celadon-600 text-clay-50"
                     : state === "current"
-                      ? "bg-zinc-950 text-white"
-                      : "bg-zinc-200 text-zinc-500"
+                      ? "bg-kiln-600 text-clay-50"
+                      : "bg-clay-200 text-ink-dim"
                 }`}
               >
                 {state === "done" ? "✓" : index + 1}
@@ -334,10 +334,10 @@ function ScanStageList({ stage }: { stage: string | null }) {
               <span
                 className={
                   state === "current"
-                    ? "font-semibold text-zinc-950"
+                    ? "font-semibold text-ink"
                     : state === "done"
-                      ? "text-zinc-600"
-                      : "text-zinc-400"
+                      ? "text-ink-dim"
+                      : "text-ink-dim/60"
                 }
               >
                 {item.label}
@@ -353,9 +353,9 @@ function ScanStageList({ stage }: { stage: string | null }) {
 
 function InfoRow({ label, value }: { label: string; value: string }) {
   return (
-    <div className="flex items-center justify-between gap-4 border-b border-zinc-100 pb-3">
-      <dt className="text-zinc-500">{label}</dt>
-      <dd className="text-right font-medium text-zinc-950">{value}</dd>
+    <div className="flex items-center justify-between gap-4 border-b border-hairline pb-3">
+      <dt className="text-ink-dim">{label}</dt>
+      <dd className="text-right font-medium text-ink">{value}</dd>
     </div>
   );
 }

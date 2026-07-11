@@ -42,7 +42,7 @@ export function GlbViewer({ modelUrl, onSignedUrlExpired }: GlbViewerProps) {
     setError(null);
 
     const scene = new THREE.Scene();
-    scene.background = new THREE.Color(0xf4f4f5);
+    scene.background = new THREE.Color(0xe6dfd4);
 
     const camera = new THREE.PerspectiveCamera(35, 1, 0.01, 1000);
     camera.position.set(0, 0, 3);
@@ -215,23 +215,23 @@ export function GlbViewer({ modelUrl, onSignedUrlExpired }: GlbViewerProps) {
   }
 
   return (
-    <div className="relative h-full min-h-[460px] w-full overflow-hidden rounded-md bg-zinc-100">
+    <div className="relative h-full min-h-[460px] w-full overflow-hidden rounded-md bg-clay-200">
       <div ref={containerRef} className="absolute inset-0" aria-label="3D 모델 뷰어" />
 
       {loading ? (
-        <div className="pointer-events-none absolute inset-0 grid place-items-center bg-zinc-100/80 text-sm font-medium text-zinc-600">
+        <div className="pointer-events-none absolute inset-0 grid place-items-center bg-clay-200/80 text-sm font-medium text-ink-dim">
           3D 모델을 불러오는 중입니다.
         </div>
       ) : null}
 
       {error ? (
-        <div className="absolute inset-0 grid place-items-center bg-zinc-100/95 p-6 text-center">
+        <div className="absolute inset-0 grid place-items-center bg-clay-200/95 p-6 text-center">
           <div>
-            <p className="text-sm font-medium text-zinc-800">{error}</p>
+            <p className="text-sm font-medium text-ink">{error}</p>
             <button
               type="button"
               onClick={retry}
-              className="mt-4 rounded-md bg-zinc-950 px-4 py-2 text-sm font-semibold text-white hover:bg-zinc-800"
+              className="mt-4 rounded-md bg-celadon-600 px-4 py-2 text-sm font-semibold text-clay-50 hover:bg-celadon-700"
             >
               새 URL로 다시 시도
             </button>
@@ -241,7 +241,7 @@ export function GlbViewer({ modelUrl, onSignedUrlExpired }: GlbViewerProps) {
 
       {!loading && !error ? (
         <>
-          <div className="absolute right-3 top-3 flex gap-1 rounded-md bg-white/90 p-1 shadow-sm">
+          <div className="absolute right-3 top-3 flex gap-1 rounded-md bg-clay-50/90 p-1 shadow-sm">
             {DISPLAY_MODES.map((item) => (
               <button
                 key={item.key}
@@ -249,15 +249,15 @@ export function GlbViewer({ modelUrl, onSignedUrlExpired }: GlbViewerProps) {
                 onClick={() => setDisplayMode(item.key)}
                 className={`rounded px-2.5 py-1 text-xs font-semibold transition-colors ${
                   displayMode === item.key
-                    ? "bg-zinc-950 text-white"
-                    : "text-zinc-600 hover:bg-zinc-100"
+                    ? "bg-celadon-600 text-clay-50"
+                    : "text-ink-dim hover:bg-clay-100"
                 }`}
               >
                 {item.label}
               </button>
             ))}
           </div>
-          <p className="pointer-events-none absolute bottom-3 left-3 rounded bg-white/85 px-2 py-1 text-xs text-zinc-600 shadow-sm">
+          <p className="pointer-events-none absolute bottom-3 left-3 rounded bg-clay-50/85 px-2 py-1 text-xs text-ink-dim shadow-sm">
             드래그: 회전 · 휠/핀치: 확대 및 축소
           </p>
         </>
