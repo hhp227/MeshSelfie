@@ -15,28 +15,28 @@ const SLIDES: Slide[] = [
     title: "정면 사진 한 장이면 충분합니다",
     description:
       "얼굴 구조와 비율을 보존한 실사형 3D 헤드 메쉬를 몇 분 안에 생성합니다.",
-    gradient: "from-teal-600 via-teal-700 to-zinc-900",
+    gradient: "from-celadon-600 via-celadon-700 to-ink",
   },
   {
     eyebrow: "ANGLE-AWARE QUALITY",
     title: "각도를 더할수록 정교해지는 A+ 등급",
     description:
       "정면 + 측면 + 45도, 세 장을 모두 올리면 가장 높은 품질 등급으로 생성됩니다.",
-    gradient: "from-indigo-600 via-indigo-700 to-zinc-900",
+    gradient: "from-clay-400 via-clay-500 to-ink",
   },
   {
     eyebrow: "NOT A CHARACTER AVATAR",
     title: "캐릭터가 아니라 당신의 얼굴입니다",
     description:
       "VRM이나 만화풍 아바타가 아닌, 실제 촬영·스캔에 가까운 실사형 메쉬를 지향합니다.",
-    gradient: "from-rose-600 via-rose-700 to-zinc-900",
+    gradient: "from-kiln-600 via-kiln-700 to-ink",
   },
   {
     eyebrow: "READY-TO-USE GLB",
     title: "다운로드한 GLB, 어디서든 활용하세요",
     description:
       "브라우저 3D 뷰어로 바로 확인하고, 완성된 모델은 GLB 파일로 내려받습니다.",
-    gradient: "from-amber-600 via-orange-700 to-zinc-900",
+    gradient: "from-axis-z via-celadon-700 to-ink",
   },
 ];
 
