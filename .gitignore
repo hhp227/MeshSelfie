@@ -44,3 +44,11 @@ next-env.d.ts
 
 # 로컬 테스트 사진 (재클론 시 백업에서 복원)
 /image/
+
+# Claude Code / 에이전트 툴링 산출물
+.claude/
+.agents/
+skills-lock.json
+
+# 로컬 운영 스크립트 (테스트 계정 자격증명 포함 — 공개 레포에 커밋 금지)
+/scripts/
