@@ -21,22 +21,22 @@ type PlaceholderCard = {
 
 // 갤러리가 비어 있을 때만 보여주는 레이아웃 예시 카드
 const PLACEHOLDER_CARDS: PlaceholderCard[] = [
-  { id: "1", gradient: "from-teal-400 to-teal-700", qualityGrade: "A+", daysAgo: 1 },
-  { id: "2", gradient: "from-indigo-400 to-indigo-700", qualityGrade: "A", daysAgo: 2 },
-  { id: "3", gradient: "from-rose-400 to-rose-700", qualityGrade: "A+", daysAgo: 3 },
-  { id: "4", gradient: "from-amber-400 to-orange-700", qualityGrade: "B", daysAgo: 4 },
-  { id: "5", gradient: "from-sky-400 to-sky-700", qualityGrade: "A", daysAgo: 5 },
-  { id: "6", gradient: "from-emerald-400 to-emerald-700", qualityGrade: "A+", daysAgo: 6 },
-  { id: "7", gradient: "from-fuchsia-400 to-fuchsia-700", qualityGrade: "A", daysAgo: 7 },
-  { id: "8", gradient: "from-zinc-400 to-zinc-700", qualityGrade: "B", daysAgo: 8 },
+  { id: "1", gradient: "from-clay-300 to-clay-500", qualityGrade: "A+", daysAgo: 1 },
+  { id: "2", gradient: "from-celadon-400 to-celadon-700", qualityGrade: "A", daysAgo: 2 },
+  { id: "3", gradient: "from-clay-400 to-kiln-600", qualityGrade: "A+", daysAgo: 3 },
+  { id: "4", gradient: "from-clay-200 to-clay-400", qualityGrade: "B", daysAgo: 4 },
+  { id: "5", gradient: "from-celadon-100 to-celadon-400", qualityGrade: "A", daysAgo: 5 },
+  { id: "6", gradient: "from-clay-300 to-celadon-600", qualityGrade: "A+", daysAgo: 6 },
+  { id: "7", gradient: "from-kiln-100 to-clay-500", qualityGrade: "A", daysAgo: 7 },
+  { id: "8", gradient: "from-clay-300 to-clay-500", qualityGrade: "B", daysAgo: 8 },
 ];
 
 const QUALITY_BADGE_STYLE: Record<string, string> = {
-  "S+": "bg-violet-600 text-white",
-  S: "bg-violet-500 text-white",
-  "A+": "bg-teal-600 text-white",
-  A: "bg-zinc-800 text-white",
-  B: "bg-zinc-500 text-white",
+  "S+": "bg-kiln-700 text-clay-50",
+  S: "bg-kiln-600 text-clay-50",
+  "A+": "bg-celadon-600 text-clay-50",
+  A: "bg-ink text-clay-50",
+  B: "bg-clay-500 text-clay-50",
 };
 
 function daysAgoLabel(iso: string) {
@@ -85,13 +85,13 @@ export function GalleryFeed() {
   return (
     <section className="flex flex-col gap-6">
       <div className="flex flex-col gap-2">
-        <p className="text-sm font-semibold uppercase tracking-[0.18em] text-teal-700">
+        <p className="font-mono text-xs font-medium uppercase tracking-[0.2em] text-celadon-600">
           Community Gallery
         </p>
-        <h2 className="text-2xl font-semibold tracking-tight text-zinc-950 sm:text-3xl">
+        <h2 className="text-2xl font-bold tracking-tight text-ink sm:text-3xl">
           사용자들이 만든 실사형 3D 메쉬
         </h2>
-        <p className="max-w-2xl text-sm leading-6 text-zinc-600">
+        <p className="max-w-2xl text-sm leading-6 text-ink-dim">
           {hasRealMeshes
             ? "MeshSelfie 사용자들이 실제로 생성한 3D 모델의 썸네일입니다."
             : "아직 공개된 모델이 없어 레이아웃 예시를 보여드립니다. 정식 오픈 후에는 사용자가 생성한 모델의 실제 썸네일로 채워집니다."}
@@ -103,7 +103,7 @@ export function GalleryFeed() {
           {meshes!.map((mesh) => (
             <div
               key={mesh.id}
-              className="group relative aspect-square overflow-hidden rounded-xl bg-zinc-100"
+              className="group relative aspect-square overflow-hidden rounded-md border border-hairline bg-clay-200"
             >
               {mesh.thumbnailUrl ? (
                 // Storage signed URL은 도메인이 동적이라 next/image 대신 img를 사용
@@ -116,26 +116,26 @@ export function GalleryFeed() {
                 />
               ) : (
                 <div
-                  className="absolute inset-0 bg-gradient-to-br from-zinc-300 to-zinc-500"
+                  className="absolute inset-0 bg-gradient-to-br from-clay-300 to-clay-500"
                   aria-hidden
                 />
               )}
 
               <span
                 className={`absolute left-2 top-2 rounded-full px-2 py-0.5 text-[11px] font-semibold ${
-                  QUALITY_BADGE_STYLE[mesh.qualityGrade] ?? "bg-zinc-500 text-white"
+                  QUALITY_BADGE_STYLE[mesh.qualityGrade] ?? "bg-clay-500 text-clay-50"
                 }`}
               >
                 {mesh.qualityGrade}
               </span>
 
               {mesh.isFeatured ? (
-                <span className="absolute right-2 top-2 rounded-full bg-amber-500 px-2 py-0.5 text-[11px] font-semibold text-white">
+                <span className="absolute right-2 top-2 rounded-full bg-kiln-600 px-2 py-0.5 text-[11px] font-semibold text-clay-50">
                   Featured
                 </span>
               ) : null}
 
-              <div className="absolute inset-x-0 bottom-0 flex items-center justify-between bg-gradient-to-t from-black/60 to-transparent px-2.5 py-2 text-white">
+              <div className="absolute inset-x-0 bottom-0 flex items-center justify-between bg-gradient-to-t from-ink/60 to-transparent px-2.5 py-2 text-clay-50">
                 <span className="text-[11px] font-medium">
                   {mesh.displayName ?? "익명 사용자"} · {daysAgoLabel(mesh.completedAt)}
                 </span>
@@ -148,7 +148,7 @@ export function GalleryFeed() {
           {PLACEHOLDER_CARDS.map((card) => (
             <div
               key={card.id}
-              className="group relative aspect-square overflow-hidden rounded-xl bg-zinc-100"
+              className="group relative aspect-square overflow-hidden rounded-md border border-hairline bg-clay-200"
             >
               <div
                 className={`absolute inset-0 bg-gradient-to-br ${card.gradient} transition-transform duration-300 group-hover:scale-105`}
@@ -166,13 +166,13 @@ export function GalleryFeed() {
 
               <span
                 className={`absolute left-2 top-2 rounded-full px-2 py-0.5 text-[11px] font-semibold ${
-                  QUALITY_BADGE_STYLE[card.qualityGrade] ?? "bg-zinc-500 text-white"
+                  QUALITY_BADGE_STYLE[card.qualityGrade] ?? "bg-clay-500 text-clay-50"
                 }`}
               >
                 {card.qualityGrade}
               </span>
 
-              <div className="absolute inset-x-0 bottom-0 flex items-center justify-between bg-gradient-to-t from-black/60 to-transparent px-2.5 py-2 text-white">
+              <div className="absolute inset-x-0 bottom-0 flex items-center justify-between bg-gradient-to-t from-ink/60 to-transparent px-2.5 py-2 text-clay-50">
                 <span className="text-[11px] font-medium">예시 카드 · {card.daysAgo}일 전</span>
               </div>
             </div>

@@ -1,26 +1,119 @@
 @import "tailwindcss";
 
+/*
+ * MeshSelfie 디자인 시스템 — "뷰포트 라이트"
+ * 3D 뷰포트 레이아웃 위에 점토(clay)·청자(celadon)·가마(kiln) 팔레트를 얹는다.
+ * 색은 여기 토큰으로만 정의하고 컴포넌트에서는 유틸리티 클래스를 사용한다.
+ */
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --background: #ede7df;
+  --foreground: #2b2119;
+}
+
+@theme {
+  /* 점토 — 배경/패널/크롬 표면 */
+  --color-clay-50: #f7f3ed;
+  --color-clay-100: #ede7df;
+  --color-clay-200: #e6dfd4;
+  --color-clay-300: #d6ccbd;
+  --color-clay-400: #b3a08c;
+  --color-clay-500: #a8937f;
+
+  /* 잉크 — 텍스트 */
+  --color-ink: #2b2119;
+  --color-ink-dim: #6e6055;
+
+  /* 헤어라인 — 보더 */
+  --color-hairline: rgba(43, 33, 25, 0.14);
+  --color-hairline-strong: rgba(43, 33, 25, 0.3);
+
+  /* 청자 — 주 액센트(CTA/선택/링크) */
+  --color-celadon-100: #dfe9e4;
+  --color-celadon-400: #6fa294;
+  --color-celadon-600: #3f7166;
+  --color-celadon-700: #315a51;
+
+  /* 가마 — 보조 액센트(진행중/강조/실패 아님, 뜨거움) */
+  --color-kiln-100: #f3e2dc;
+  --color-kiln-600: #a34f38;
+  --color-kiln-700: #8a4230;
+
+  /* 3D 축 색 — 카메라 각도 표기 (정면 +Z, 측면 +X, 위 +Y) */
+  --color-axis-x: #c4574b;
+  --color-axis-y: #7a9b57;
+  --color-axis-z: #4e7fa8;
+  --color-axis-45: #8e6fa8;
+
+  --font-sans: "Pretendard Variable", Pretendard, ui-sans-serif, system-ui,
+    -apple-system, "Apple SD Gothic Neo", "Noto Sans KR", sans-serif;
+  --font-mono: var(--font-jbmono), "JetBrains Mono", "SFMono-Regular", Consolas,
+    monospace;
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: Arial, Helvetica, sans-serif;
-  --font-mono: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-sans);
+}
+
+/* 뷰포트 히어로의 원근 바닥 그리드 */
+.vp-floor {
+  position: absolute;
+  left: -20%;
+  right: -20%;
+  bottom: -6%;
+  height: 55%;
+  background-image: linear-gradient(rgba(43, 33, 25, 0.08) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(43, 33, 25, 0.08) 1px, transparent 1px);
+  background-size: 46px 46px;
+  transform: perspective(640px) rotateX(58deg);
+  transform-origin: top center;
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    transparent,
+    #000 18%,
+    #000 70%,
+    transparent
+  );
+  mask-image: linear-gradient(to bottom, transparent, #000 18%, #000 70%, transparent);
+  pointer-events: none;
+}
+
+/* 와이어프레임 두상: 외곽선이 스캔되듯 그려진 뒤 그리드가 떠오른다 */
+@media (prefers-reduced-motion: no-preference) {
+  .wire-outline-draw {
+    stroke-dasharray: 1400;
+    stroke-dashoffset: 1400;
+    animation: wire-draw 2.6s 0.2s ease forwards;
+  }
+  .wire-grid-fade {
+    opacity: 0;
+    animation: wire-fade 1.4s 1.6s ease forwards;
+  }
+  .stage-blink {
+    animation: stage-blink 1.2s infinite;
+  }
+}
+
+@keyframes wire-draw {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+@keyframes wire-fade {
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes stage-blink {
+  50% {
+    opacity: 0.3;
+  }
 }
